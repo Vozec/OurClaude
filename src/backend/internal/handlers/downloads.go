@@ -104,7 +104,11 @@ func (h *DownloadsHandler) AuthDownload(w http.ResponseWriter, r *http.Request) 
 	key := newBinaryKey()
 	patched := patchBinaryToken(data, key)
 
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	dlName := "ourclaude"
+	if strings.HasSuffix(filename, ".exe") {
+		dlName = "ourclaude.exe"
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, dlName))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.Itoa(len(patched)))
 	w.Write(patched)
@@ -152,7 +156,21 @@ func (h *DownloadsHandler) PreAuthDownload(w http.ResponseWriter, r *http.Reques
 	// Store the binary key on the download link record.
 	h.db.Model(&database.DownloadLink{}).Where("id = ?", link.ID).Update("binary_key", key)
 
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	// Record per-user download history if the link is tied to a user.
+	if link.UserID != nil {
+		h.db.Create(&database.UserBinaryDownload{
+			UserID:       *link.UserID,
+			Platform:     link.Platform,
+			BinaryKey:    key,
+			DownloadedAt: time.Now(),
+		})
+	}
+
+	dlName := "ourclaude"
+	if strings.HasSuffix(filename, ".exe") {
+		dlName = "ourclaude.exe"
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, dlName))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Length", strconv.Itoa(len(patched)))
 	w.Write(patched)

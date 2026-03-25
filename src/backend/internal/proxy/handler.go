@@ -226,7 +226,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			var used int64
 			h.db.Model(&database.UsageLog{}).
 				Joins("JOIN claude_accounts ON usage_logs.account_id = claude_accounts.id").
-				Where("claude_accounts.pool_id = ? AND usage_logs.created_at >= ?", firstPoolID, today).
+				Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
+				Where("account_pools.pool_id = ? AND usage_logs.created_at >= ?", firstPoolID, today).
 				Select("COALESCE(SUM(usage_logs.input_tokens + usage_logs.output_tokens), 0)").
 				Row().Scan(&used)
 			if int(used) >= poolRecord.DailyTokenQuota {
@@ -240,7 +241,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			var used int64
 			h.db.Model(&database.UsageLog{}).
 				Joins("JOIN claude_accounts ON usage_logs.account_id = claude_accounts.id").
-				Where("claude_accounts.pool_id = ? AND usage_logs.created_at >= ?", firstPoolID, monthStart).
+				Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
+				Where("account_pools.pool_id = ? AND usage_logs.created_at >= ?", firstPoolID, monthStart).
 				Select("COALESCE(SUM(usage_logs.input_tokens + usage_logs.output_tokens), 0)").
 				Row().Scan(&used)
 			if int(used) >= poolRecord.MonthlyTokenQuota {
@@ -664,6 +666,10 @@ func rewriteModel(body []byte, resolve func(string) string) []byte {
 	var model string
 	if err := json.Unmarshal(modelRaw, &model); err != nil || model == "" {
 		return body
+	}
+	// Strip display suffix like "[1m]" appended by Claude Code UI
+	if idx := strings.IndexByte(model, '['); idx != -1 {
+		model = model[:idx]
 	}
 	resolved := resolve(model)
 	if resolved == model {

@@ -75,7 +75,7 @@ export default function Dashboard() {
               { step: 1, label: 'Create a pool', desc: 'Group your Claude accounts into a pool.', to: '/pools' },
               { step: 2, label: 'Add a Claude account', desc: 'Paste ~/.claude/.credentials.json to add an OAuth account.', to: '/accounts' },
               { step: 3, label: 'Create a user', desc: 'Generate an sk-proxy-* token for a user.', to: '/users' },
-              { step: 4, label: 'Download cl', desc: 'Get the CLI wrapper binary.', to: '/downloads' },
+              { step: 4, label: 'Download ourclaude', desc: 'Get the CLI wrapper binary.', to: '/downloads' },
             ].map(({ step, label, desc, to }) => (
               <li key={step} className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center font-bold mt-0.5">{step}</span>
@@ -90,9 +90,9 @@ export default function Dashboard() {
             <li className="flex items-start gap-3">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-brand-500 text-white text-xs flex items-center justify-center font-bold mt-0.5">5</span>
               <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Run cl login</p>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Run ourclaude login</p>
                 <code className="text-xs bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 rounded font-mono">
-                  cl login http://your-server:3000 sk-proxy-xxxxx
+                  ourclaude login http://your-server:3000 sk-proxy-xxxxx
                 </code>
               </div>
             </li>

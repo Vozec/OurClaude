@@ -288,7 +288,6 @@ func (h *UserSelfHandler) ImportAccount(w http.ResponseWriter, r *http.Request) 
 	}
 
 	account := database.ClaudeAccount{
-		PoolID:       poolID,
 		Name:         user.Name + " (personal)",
 		AccessToken:  encAccess,
 		RefreshToken: encRefresh,
@@ -300,6 +299,8 @@ func (h *UserSelfHandler) ImportAccount(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to create account"))
 		return
 	}
+	// Link account to pool via join table
+	h.db.Create(&database.AccountPool{AccountID: account.ID, PoolID: poolID})
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"message":    "account imported",
@@ -340,9 +341,9 @@ func (h *UserSelfHandler) PoolStatus(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var active, exhausted, errCount int64
-		h.db.Model(&database.ClaudeAccount{}).Where("pool_id = ? AND status = ?", pid, "active").Count(&active)
-		h.db.Model(&database.ClaudeAccount{}).Where("pool_id = ? AND status = ?", pid, "exhausted").Count(&exhausted)
-		h.db.Model(&database.ClaudeAccount{}).Where("pool_id = ? AND status = ?", pid, "error").Count(&errCount)
+		h.db.Model(&database.ClaudeAccount{}).Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").Where("account_pools.pool_id = ? AND claude_accounts.status = ?", pid, "active").Count(&active)
+		h.db.Model(&database.ClaudeAccount{}).Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").Where("account_pools.pool_id = ? AND claude_accounts.status = ?", pid, "exhausted").Count(&exhausted)
+		h.db.Model(&database.ClaudeAccount{}).Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").Where("account_pools.pool_id = ? AND claude_accounts.status = ?", pid, "error").Count(&errCount)
 		poolEntries = append(poolEntries, poolEntry{
 			ID:   p.ID,
 			Name: p.Name,

@@ -94,7 +94,7 @@ export default function Layout({ admin, children }: LayoutProps) {
                 <line x1="24.5" y1="24.2" x2="19" y2="20.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.45"/>
               </svg>
             </div>
-            <span className="font-semibold text-sm">Multi-Claude</span>
+            <span className="font-semibold text-sm">OurClaude</span>
           </div>
         </div>
 
@@ -136,7 +136,7 @@ export default function Layout({ admin, children }: LayoutProps) {
             <button
               onClick={toggleDark}
               title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className={`relative inline-flex w-9 h-5 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${dark ? 'bg-brand-500' : 'bg-gray-600'}`}
+              className={`relative inline-flex w-9 h-5 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${dark ? 'bg-brand-500' : 'bg-gray-300'}`}
             >
               <span
                 className={`inline-block w-4 h-4 rounded-full bg-white shadow transform transition-transform duration-200 ${dark ? 'translate-x-4' : 'translate-x-0'}`}

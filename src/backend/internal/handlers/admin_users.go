@@ -312,3 +312,46 @@ func parseID(r *http.Request) (uint, error) {
 	}
 	return uint(id), nil
 }
+
+// GetStats returns today/week/total usage stats + owned Claude accounts for a user.
+func (h *UsersHandler) GetStats(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
+		return
+	}
+
+	var user database.User
+	if err := h.db.First(&user, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("user not found"))
+		return
+	}
+
+	now := time.Now().UTC()
+	todayStart := now.Truncate(24 * time.Hour)
+	weekStart := now.AddDate(0, 0, -6).Truncate(24 * time.Hour)
+
+	type period struct {
+		Requests     int64 `json:"requests"`
+		InputTokens  int64 `json:"input_tokens"`
+		OutputTokens int64 `json:"output_tokens"`
+	}
+
+	queryPeriod := func(since time.Time) period {
+		var p period
+		h.db.Model(&database.UsageLog{}).
+			Where("user_id = ? AND created_at >= ?", id, since).
+			Select("COUNT(*) as requests, COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens").
+			Row().Scan(&p.Requests, &p.InputTokens, &p.OutputTokens)
+		return p
+	}
+
+	var accounts []database.ClaudeAccount
+	h.db.Where("owner_user_id = ?", id).Find(&accounts)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"today":    queryPeriod(todayStart),
+		"week":     queryPeriod(weekStart),
+		"accounts": accounts,
+	})
+}

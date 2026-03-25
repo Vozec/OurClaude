@@ -141,7 +141,8 @@ func (m *Manager) GetAccountForUser(poolIDs []uint) (*database.ClaudeAccount, er
 		var usage int64
 		m.db.Model(&database.UsageLog{}).
 			Joins("JOIN claude_accounts ON usage_logs.account_id = claude_accounts.id").
-			Where("claude_accounts.pool_id = ? AND usage_logs.created_at >= ?", pid, today).
+			Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
+			Where("account_pools.pool_id = ? AND usage_logs.created_at >= ?", pid, today).
 			Select("COALESCE(SUM(usage_logs.input_tokens + usage_logs.output_tokens), 0)").
 			Row().Scan(&usage)
 		if minUsage < 0 || usage < minUsage {
@@ -157,7 +158,9 @@ func (m *Manager) GetAccountForUser(poolIDs []uint) (*database.ClaudeAccount, er
 // using round-robin selection and skipping exhausted/error accounts.
 func (m *Manager) GetAccountForPool(poolID uint) (*database.ClaudeAccount, error) {
 	var accounts []database.ClaudeAccount
-	if err := m.db.Where("pool_id = ? AND status != ?", poolID, "error").Find(&accounts).Error; err != nil {
+	if err := m.db.Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
+		Where("account_pools.pool_id = ? AND claude_accounts.status != ?", poolID, "error").
+		Find(&accounts).Error; err != nil {
 		return nil, err
 	}
 
@@ -218,7 +221,7 @@ func (m *Manager) MarkError(accountID uint, errMsg string) {
 
 func (m *Manager) ResetPool(poolID uint) error {
 	return m.db.Model(&database.ClaudeAccount{}).
-		Where("pool_id = ? AND status = ?", poolID, "exhausted").
+		Where("id IN (SELECT account_id FROM account_pools WHERE pool_id = ?) AND status = ?", poolID, "exhausted").
 		Updates(map[string]interface{}{
 			"status":     "active",
 			"last_error": "",

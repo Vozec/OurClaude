@@ -78,6 +78,7 @@ export const usersApi = {
   delete:           (id: number) => del(`/admin/users/${id}`),
   rotateToken:      (id: number) => post<{ api_token: string }>(`/admin/users/${id}/rotate-token`),
   generateSetupLink:(id: number) => post<{ url: string }>(`/admin/users/${id}/setup-link`),
+  stats:            (id: number) => get<UserStats>(`/admin/users/${id}/stats`),
 }
 
 // Pools
@@ -94,36 +95,42 @@ export const poolsApi = {
 
 // Accounts
 export const accountsApi = {
-  list:    () => get<Account[]>('/admin/accounts'),
-  stats:   (id: number) => get<AccountStats>(`/admin/accounts/${id}/stats`),
-  create:  (body: { name: string; pool_id: number; credentials_json: string }) =>
-             post<Account>('/admin/accounts', body),
-  update:  (id: number, body: Partial<{ name: string; pool_id: number }>) =>
-             put<Account>(`/admin/accounts/${id}`, body),
-  delete:  (id: number) => del(`/admin/accounts/${id}`),
-  refresh: (id: number) => post<{ expires_at: string }>(`/admin/accounts/${id}/refresh`),
-  reset:   (id: number) => post(`/admin/accounts/${id}/reset`),
-  test:    (id: number) => post<{ status_code: number; ok: boolean }>(`/admin/accounts/${id}/test`),
+  list:        () => get<Account[]>('/admin/accounts'),
+  stats:       (id: number) => get<AccountStats>(`/admin/accounts/${id}/stats`),
+  create:      (body: { name: string; pool_ids?: number[]; credentials_json: string }) =>
+                 post<Account>('/admin/accounts', body),
+  update:      (id: number, body: Partial<{ name: string; pool_ids: number[] }>) =>
+                 put<Account>(`/admin/accounts/${id}`, body),
+  delete:      (id: number) => del(`/admin/accounts/${id}`),
+  refresh:     (id: number) => post<{ expires_at: string }>(`/admin/accounts/${id}/refresh`),
+  reset:       (id: number) => post(`/admin/accounts/${id}/reset`),
+  test:        (id: number) => post<{ status_code: number; ok: boolean }>(`/admin/accounts/${id}/test`),
+  credentials: (id: number) => get<Record<string, unknown>>(`/admin/accounts/${id}/credentials`),
+  unlink:      (id: number, poolId?: number) => del<void>(`/admin/accounts/${id}/pool${poolId ? `?pool_id=${poolId}` : ''}`),
+  quota:       (id: number) => get<unknown>(`/admin/accounts/${id}/quota`),
 }
 
 // Stats
 export const statsApi = {
-  overview: () => get<OverviewStats>('/admin/stats/overview'),
-  usage:    (params?: { page?: number; limit?: number; user_id?: number; model?: string; status_class?: string; endpoint?: string }) => {
+  overview:    () => get<OverviewStats>('/admin/stats/overview'),
+  usage:       (params?: { page?: number; limit?: number; user_id?: number; model?: string; status_class?: string; endpoint?: string }) => {
     const q = new URLSearchParams()
-    if (params?.page)    q.set('page',    String(params.page))
-    if (params?.limit)   q.set('limit',   String(params.limit))
-    if (params?.user_id) q.set('user_id', String(params.user_id))
+    if (params?.page)         q.set('page',         String(params.page))
+    if (params?.limit)        q.set('limit',        String(params.limit))
+    if (params?.user_id)      q.set('user_id',      String(params.user_id))
     if (params?.model)        q.set('model',        params.model)
-    if (params?.status_class)  q.set('status_class',  params.status_class)
-    if (params?.endpoint)      q.set('endpoint',      params.endpoint)
+    if (params?.status_class) q.set('status_class', params.status_class)
+    if (params?.endpoint)     q.set('endpoint',     params.endpoint)
     return get<UsagePage>(`/admin/stats/usage?${q}`)
   },
-  byUser:  () => get<UserStat[]>('/admin/stats/by-user'),
-  byDay:   () => get<DayStat[]>('/admin/stats/by-day'),
-  byModel: () => get<ModelStat[]>('/admin/stats/by-model'),
-  latency: () => get<LatencyStat[]>('/admin/stats/latency'),
-  exportURL: (params?: { user_id?: number; model?: string; status_class?: string; endpoint?: string }) => {
+  byUser:      () => get<UserStat[]>('/admin/stats/by-user'),
+  byDay:       () => get<DayStat[]>('/admin/stats/by-day'),
+  byModel:     () => get<ModelStat[]>('/admin/stats/by-model'),
+  latency:     () => get<LatencyStat[]>('/admin/stats/latency'),
+  byModelDay:  () => get<ModelDayStat[]>('/admin/stats/by-model-day'),
+  heatmap:     (days?: number) => get<HeatmapPoint[]>(`/admin/stats/heatmap${days ? `?days=${days}` : ''}`),
+  sessions:    (hours?: number) => get<SessionStat[]>(`/admin/stats/sessions${hours ? `?hours=${hours}` : ''}`),
+  exportURL:   (params?: { user_id?: number; model?: string; status_class?: string; endpoint?: string }) => {
     const q = new URLSearchParams()
     if (params?.user_id) q.set('user_id', String(params.user_id))
     return `/api/admin/stats/export?${q}`
@@ -223,7 +230,8 @@ export interface Pool {
 
 export interface Account {
   id: number
-  pool_id: number
+  pool_id?: number | null // legacy
+  pools?: Pool[]
   name: string
   status: 'active' | 'exhausted' | 'error'
   last_error?: string
@@ -249,6 +257,12 @@ export interface User {
   monthly_budget_usd: number
   extra_headers: string
   created_at: string
+}
+
+export interface UserStats {
+  today:    { requests: number; input_tokens: number; output_tokens: number }
+  week:     { requests: number; input_tokens: number; output_tokens: number }
+  accounts: Account[]
 }
 
 export interface UsageLog {
@@ -407,6 +421,31 @@ export interface LatencyStat {
   p95_ms: number
   p99_ms: number
   count: number
+}
+
+export interface ModelDayStat {
+  day: string
+  model: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+}
+
+export interface HeatmapPoint {
+  day_of_week: number  // 0=Sun..6=Sat
+  hour_of_day: number
+  count: number
+}
+
+export interface SessionStat {
+  user_id: number
+  user_name: string
+  session_count: number
+  total_requests: number
+  avg_session_duration_min: number
+  avg_messages_per_session: number
+  total_input_tokens: number
+  total_output_tokens: number
 }
 
 export interface UserBinaryDownload {

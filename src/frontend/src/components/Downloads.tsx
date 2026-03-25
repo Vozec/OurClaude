@@ -172,7 +172,7 @@ export default function Downloads() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Downloads</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">Download the <code className="text-sm bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-1 rounded">cl</code> client binary or generate shareable pre-auth links.</p>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">Download the <code className="text-sm bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-1 rounded">ourclaude</code> client binary or generate shareable pre-auth links.</p>
       </div>
 
       {/* Direct downloads (admin-auth) */}
@@ -335,26 +335,26 @@ export default function Downloads() {
       {/* Usage instructions */}
       <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
         <h2 className="font-semibold text-gray-800 dark:text-gray-100 mb-3 flex items-center gap-2">
-          <Terminal className="w-4 h-4" /> How to use cl
+          <Terminal className="w-4 h-4" /> How to use ourclaude
         </h2>
         <ol className="space-y-3 text-sm text-gray-600 dark:text-gray-400">
           <li className="flex gap-2"><span className="font-bold text-gray-400">1.</span>
             <span>Download the binary for your platform, then make it executable:</span>
           </li>
           <li>
-            <code className="block bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 font-mono whitespace-pre">{`chmod +x cl-linux-amd64\nsudo mv cl-linux-amd64 /usr/local/bin/cl`}</code>
+            <code className="block bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 font-mono whitespace-pre">{`chmod +x ourclaude\nsudo mv ourclaude /usr/local/bin/ourclaude`}</code>
           </li>
           <li className="flex gap-2"><span className="font-bold text-gray-400">2.</span>
             <span>Login with your proxy token (find it in Users page):</span>
           </li>
           <li>
-            <code className="block bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 font-mono">{`cl login ${window.location.origin} sk-proxy-xxxxx`}</code>
+            <code className="block bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 font-mono">{`ourclaude login ${window.location.origin} sk-proxy-xxxxx`}</code>
           </li>
           <li className="flex gap-2"><span className="font-bold text-gray-400">3.</span>
             <span>Use Claude through the proxy — all requests go through your server:</span>
           </li>
           <li>
-            <code className="block bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 font-mono">{`cl "Write a hello world in Go"`}</code>
+            <code className="block bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 font-mono">{`ourclaude "Write a hello world in Go"`}</code>
           </li>
         </ol>
       </div>

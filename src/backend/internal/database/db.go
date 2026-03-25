@@ -57,6 +57,7 @@ func New(dbType, path, dsn string) (*gorm.DB, error) {
 		&ModelAlias{},
 		&UserBinaryDownload{},
 		&ConversationLog{},
+		&AccountPool{},
 		&UserPool{},
 		&InvitePool{},
 		&SetupToken{},
@@ -64,6 +65,16 @@ func New(dbType, path, dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Migrate existing pool_id assignments to account_pools join table (backward compat).
+	db.Exec(`
+		INSERT INTO account_pools (account_id, pool_id)
+		SELECT id, pool_id FROM claude_accounts
+		WHERE pool_id IS NOT NULL
+		AND NOT EXISTS (
+			SELECT 1 FROM account_pools ap WHERE ap.account_id = claude_accounts.id AND ap.pool_id = claude_accounts.pool_id
+		)
+	`)
 
 	// Migrate existing pool_id assignments to user_pools join table (backward compat).
 	db.Exec(`

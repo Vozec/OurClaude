@@ -354,3 +354,168 @@ func (h *StatsHandler) ByModel(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, rows)
 }
+
+// GET /api/admin/stats/by-model-day — per-model daily breakdown for the last 30 days
+func (h *StatsHandler) ByModelDay(w http.ResponseWriter, r *http.Request) {
+	type row struct {
+		Day          string `json:"day"`
+		Model        string `json:"model"`
+		Requests     int64  `json:"requests"`
+		InputTokens  int64  `json:"input_tokens"`
+		OutputTokens int64  `json:"output_tokens"`
+	}
+
+	since := time.Now().AddDate(0, 0, -30)
+	var rows []row
+	h.db.Model(&database.UsageLog{}).
+		Select("DATE(created_at) as day, model, count(*) as requests, COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens").
+		Where("created_at >= ?", since).
+		Group("DATE(created_at), model").
+		Order("day ASC, requests DESC").
+		Scan(&rows)
+
+	writeJSON(w, http.StatusOK, rows)
+}
+
+// GET /api/admin/stats/heatmap?days=30 — activity by day-of-week × hour-of-day
+func (h *StatsHandler) Heatmap(w http.ResponseWriter, r *http.Request) {
+	days := 30
+	if d := r.URL.Query().Get("days"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 && v <= 90 {
+			days = v
+		}
+	}
+
+	since := time.Now().AddDate(0, 0, -days)
+
+	type point struct {
+		DayOfWeek  int   `json:"day_of_week"`  // 0=Sun .. 6=Sat
+		HourOfDay  int   `json:"hour_of_day"`
+		Count      int64 `json:"count"`
+	}
+	var points []point
+	h.db.Model(&database.UsageLog{}).
+		Where("created_at >= ?", since).
+		Select("CAST(strftime('%w', created_at) AS INTEGER) as day_of_week, CAST(strftime('%H', created_at) AS INTEGER) as hour_of_day, COUNT(*) as count").
+		Group("day_of_week, hour_of_day").
+		Scan(&points)
+
+	writeJSON(w, http.StatusOK, points)
+}
+
+// GET /api/admin/stats/sessions?hours=168 — session analytics per user (30-min gap threshold)
+func (h *StatsHandler) Sessions(w http.ResponseWriter, r *http.Request) {
+	hours := 168 // 7 days default
+	if v := r.URL.Query().Get("hours"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 && parsed <= 720 {
+			hours = parsed
+		}
+	}
+
+	since := time.Now().Add(-time.Duration(hours) * time.Hour)
+
+	type rawLog struct {
+		UserID       uint
+		UserName     string
+		CreatedAt    time.Time
+		InputTokens  int
+		OutputTokens int
+	}
+	var logs []rawLog
+	h.db.Model(&database.UsageLog{}).
+		Select("usage_logs.user_id, users.name as user_name, usage_logs.created_at, usage_logs.input_tokens, usage_logs.output_tokens").
+		Joins("LEFT JOIN users ON users.id = usage_logs.user_id").
+		Where("usage_logs.created_at >= ?", since).
+		Order("usage_logs.user_id, usage_logs.created_at").
+		Scan(&logs)
+
+	// Group into sessions per user (30-min gap threshold)
+	const sessionGap = 30 * time.Minute
+
+	type userSession struct {
+		start    time.Time
+		end      time.Time
+		requests int
+		input    int
+		output   int
+	}
+
+	type userAccum struct {
+		name     string
+		sessions []userSession
+		totalIn  int
+		totalOut int
+	}
+
+	users := make(map[uint]*userAccum)
+	for _, log := range logs {
+		acc, ok := users[log.UserID]
+		if !ok {
+			acc = &userAccum{name: log.UserName}
+			users[log.UserID] = acc
+		}
+		acc.totalIn += log.InputTokens
+		acc.totalOut += log.OutputTokens
+
+		if len(acc.sessions) == 0 || log.CreatedAt.Sub(acc.sessions[len(acc.sessions)-1].end) > sessionGap {
+			acc.sessions = append(acc.sessions, userSession{
+				start:    log.CreatedAt,
+				end:      log.CreatedAt,
+				requests: 1,
+				input:    log.InputTokens,
+				output:   log.OutputTokens,
+			})
+		} else {
+			s := &acc.sessions[len(acc.sessions)-1]
+			s.end = log.CreatedAt
+			s.requests++
+			s.input += log.InputTokens
+			s.output += log.OutputTokens
+		}
+	}
+
+	type result struct {
+		UserID                  uint    `json:"user_id"`
+		UserName                string  `json:"user_name"`
+		SessionCount            int     `json:"session_count"`
+		TotalRequests           int     `json:"total_requests"`
+		AvgSessionDurationMin   float64 `json:"avg_session_duration_min"`
+		AvgMessagesPerSession   float64 `json:"avg_messages_per_session"`
+		TotalInputTokens        int     `json:"total_input_tokens"`
+		TotalOutputTokens       int     `json:"total_output_tokens"`
+	}
+
+	var results []result
+	for uid, acc := range users {
+		if len(acc.sessions) == 0 {
+			continue
+		}
+		var totalDur float64
+		var totalReqs int
+		for _, s := range acc.sessions {
+			dur := s.end.Sub(s.start).Minutes()
+			if dur < 1 {
+				dur = 1
+			}
+			totalDur += dur
+			totalReqs += s.requests
+		}
+		n := len(acc.sessions)
+		results = append(results, result{
+			UserID:                uid,
+			UserName:              acc.name,
+			SessionCount:          n,
+			TotalRequests:         totalReqs,
+			AvgSessionDurationMin: totalDur / float64(n),
+			AvgMessagesPerSession: float64(totalReqs) / float64(n),
+			TotalInputTokens:      acc.totalIn,
+			TotalOutputTokens:     acc.totalOut,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].SessionCount > results[j].SessionCount
+	})
+
+	writeJSON(w, http.StatusOK, results)
+}

@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { usersApi, poolsApi, User, Pool } from '../lib/api'
-import { Plus, RotateCcw, Trash2, Edit2, Copy, Check, Clock, Gauge, Terminal, Link2 } from 'lucide-react'
+import { usersApi, poolsApi, User, Pool, UserStats, Account } from '../lib/api'
+import { Plus, RotateCcw, Trash2, Edit2, Copy, Check, Clock, Gauge, Terminal, Link2, X } from 'lucide-react'
 
 function Badge({ active }: { active: boolean }) {
   return (
@@ -320,10 +320,146 @@ function PoolBadges({ user }: { user: User }) {
   )
 }
 
+function fmt2(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return String(n)
+}
+
+function UserDetailPanel({ user, onClose }: { user: User; onClose: () => void }) {
+  const { data: stats, isLoading } = useQuery({
+    queryKey: ['user-stats', user.id],
+    queryFn: () => usersApi.stats(user.id),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      <div
+        className="w-full max-w-md bg-white dark:bg-gray-900 h-full shadow-2xl overflow-y-auto flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">{user.name}</h2>
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${user.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+              {user.active ? 'Active' : 'Disabled'}
+            </span>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 p-6 space-y-6">
+          {/* Stats */}
+          <div>
+            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Usage</h3>
+            {isLoading ? (
+              <div className="text-sm text-gray-400">Loading…</div>
+            ) : stats ? (
+              <div className="grid grid-cols-2 gap-3">
+                {(['today', 'week'] as const).map(period => (
+                  <div key={period} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                    <p className="text-xs text-gray-400 dark:text-gray-500 uppercase mb-1">{period === 'today' ? 'Today' : 'This week'}</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white">{stats[period].requests} <span className="text-xs font-normal text-gray-400">reqs</span></p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      ↑ {fmt2(stats[period].input_tokens)} &nbsp; ↓ {fmt2(stats[period].output_tokens)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Token */}
+          <div>
+            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">API Token</h3>
+            <CopyToken token={user.api_token} />
+          </div>
+
+          {/* Pools */}
+          {user.pools && user.pools.length > 0 && (
+            <div>
+              <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Pools</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {user.pools.map(p => (
+                  <span key={p.id} className="px-2 py-0.5 bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400 rounded text-xs font-medium">{p.name}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Quotas */}
+          {(user.daily_token_quota > 0 || user.monthly_token_quota > 0 || user.monthly_budget_usd > 0 || user.token_expires_at) && (
+            <div>
+              <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Limits</h3>
+              <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                {user.daily_token_quota > 0 && <p>Daily tokens: {fmt2(user.daily_token_quota)}</p>}
+                {user.monthly_token_quota > 0 && <p>Monthly tokens: {fmt2(user.monthly_token_quota)}</p>}
+                {user.monthly_budget_usd > 0 && <p>Monthly budget: ${user.monthly_budget_usd.toFixed(2)}</p>}
+                {user.token_expires_at && <p>Token expires: {new Date(user.token_expires_at).toLocaleDateString()}</p>}
+              </div>
+            </div>
+          )}
+
+          {/* Allowed models */}
+          {user.allowed_models && (
+            <div>
+              <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Allowed models</h3>
+              <p className="text-sm font-mono text-gray-600 dark:text-gray-400">{user.allowed_models}</p>
+            </div>
+          )}
+
+          {/* Owned accounts */}
+          {stats && stats.accounts && stats.accounts.length > 0 && (
+            <div>
+              <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Claude Accounts</h3>
+              <div className="space-y-2">
+                {stats.accounts.map((acc: Account) => {
+                  const expired = new Date(acc.expires_at) < new Date()
+                  return (
+                    <div key={acc.id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{acc.name}</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                          expires {expired ? <span className="text-red-500">expired</span> : new Date(acc.expires_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${acc.status === 'active' ? 'bg-green-100 text-green-700' : acc.status === 'exhausted' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                        {acc.status}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* IP whitelist */}
+          {user.ip_whitelist && (
+            <div>
+              <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">IP Whitelist</h3>
+              <p className="text-sm font-mono text-gray-600 dark:text-gray-400">{user.ip_whitelist}</p>
+            </div>
+          )}
+
+          {/* Created at */}
+          <div>
+            <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Created</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{new Date(user.created_at).toLocaleString()}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Users() {
   const [showCreate, setShowCreate] = useState(false)
   const [editUser, setEditUser]     = useState<User | null>(null)
   const [setupLinkCopied, setSetupLinkCopied] = useState<number | null>(null)
+  const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const qc = useQueryClient()
 
   const { data: users = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
@@ -383,7 +519,9 @@ export default function Users() {
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
               {users.map(user => (
                 <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">{user.name}</td>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">
+                    <button onClick={() => setSelectedUser(user)} className="hover:text-brand-500 transition-colors text-left">{user.name}</button>
+                  </td>
                   <td className="px-6 py-4"><CopyToken token={user.api_token} /></td>
                   <td className="px-6 py-4"><PoolBadges user={user} /></td>
                   <td className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">{user.allowed_models ? <span className="font-mono text-xs truncate max-w-[120px] block">{user.allowed_models}</span> : '—'}</td>
@@ -447,6 +585,7 @@ export default function Users() {
 
       {showCreate && <CreateUserModal pools={pools} onClose={() => setShowCreate(false)} />}
       {editUser   && <EditUserModal user={editUser} pools={pools} onClose={() => setEditUser(null)} />}
+      {selectedUser && <UserDetailPanel user={selectedUser} onClose={() => setSelectedUser(null)} />}
     </div>
   )
 }

@@ -109,6 +109,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Delete("/api/admin/users/{id}", usersH.Delete)
 		r.Post("/api/admin/users/{id}/rotate-token", usersH.RotateToken)
 		r.Post("/api/admin/users/{id}/setup-link", usersH.GenerateSetupLink)
+		r.Get("/api/admin/users/{id}/stats", usersH.GetStats)
 
 		// Pools
 		poolsH := handlers.NewPoolsHandler(s.db, s.poolMgr)
@@ -122,7 +123,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Get("/api/admin/pools/{id}/users", poolsH.Users)
 
 		// Accounts
-		accountsH := handlers.NewAccountsHandler(s.db, s.enc, s.oauth, s.poolMgr)
+		accountsH := handlers.NewAccountsHandler(s.db, s.enc, s.oauth, s.poolMgr, s.cfg)
 		r.Get("/api/admin/accounts", accountsH.List)
 		r.Post("/api/admin/accounts", accountsH.Create)
 		r.Get("/api/admin/accounts/{id}", accountsH.Get)
@@ -132,6 +133,9 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Post("/api/admin/accounts/{id}/reset", accountsH.Reset)
 		r.Post("/api/admin/accounts/{id}/test", accountsH.Test)
 		r.Get("/api/admin/accounts/{id}/stats", accountsH.Stats)
+		r.Get("/api/admin/accounts/{id}/credentials", accountsH.Credentials)
+		r.Delete("/api/admin/accounts/{id}/pool", accountsH.Unlink)
+		r.Get("/api/admin/accounts/{id}/quota", accountsH.Quota)
 
 		// Stats
 		statsH := handlers.NewStatsHandler(s.db)
@@ -184,8 +188,11 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Get("/api/admin/sessions", sessionsH.List)
 		r.Delete("/api/admin/sessions/{id}", sessionsH.Revoke)
 
-		// Stats: latency
+		// Stats: latency + new endpoints
 		r.Get("/api/admin/stats/latency", statsH.Latency)
+		r.Get("/api/admin/stats/by-model-day", statsH.ByModelDay)
+		r.Get("/api/admin/stats/heatmap", statsH.Heatmap)
+		r.Get("/api/admin/stats/sessions", statsH.Sessions)
 
 		// Log stream (SSE)
 		logStreamH := handlers.NewLogStreamHandler(s.logStream)

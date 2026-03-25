@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"claude-proxy/internal/auth"
 	"claude-proxy/internal/database"
 	"claude-proxy/internal/middleware"
 
@@ -23,6 +24,28 @@ func NewSessionsHandler(db *gorm.DB) *SessionsHandler {
 // List returns all active sessions. Super admins see all; viewers see their own.
 func (h *SessionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.GetAdmin(r.Context())
+
+	// Ensure the current session is in the DB (handles sessions created before recording was added).
+	if cookie, err := r.Cookie(auth.CookieName); err == nil {
+		hash := hashToken(cookie.Value)
+		expiresAt := time.Now().Add(24 * time.Hour)
+		if claims.RegisteredClaims.ExpiresAt != nil {
+			expiresAt = claims.RegisteredClaims.ExpiresAt.Time
+		}
+		result := h.db.Model(&database.AdminSession{}).
+			Where("token_hash = ?", hash).
+			Update("last_used_at", time.Now())
+		if result.RowsAffected == 0 {
+			h.db.Create(&database.AdminSession{
+				AdminID:    claims.AdminID,
+				TokenHash:  hash,
+				IP:         r.RemoteAddr,
+				UserAgent:  r.Header.Get("User-Agent"),
+				LastUsedAt: time.Now(),
+				ExpiresAt:  expiresAt,
+			})
+		}
+	}
 
 	var sessions []database.AdminSession
 	q := h.db.Preload("Admin").Where("expires_at > ?", time.Now())

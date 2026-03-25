@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { poolsApi, accountsApi, Pool, Account, User } from '../lib/api'
-import { ArrowLeft, Server, Users, Activity, Zap, AlertTriangle, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Server, Users, Zap, AlertTriangle, CheckCircle, Link2Off } from 'lucide-react'
 
 function fmtTokens(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
@@ -53,10 +53,19 @@ function AccountStatusBadge({ status }: { status: string }) {
   return <span className="flex items-center gap-1 text-red-600 dark:text-red-400 text-xs"><AlertTriangle className="w-3.5 h-3.5" />Error</span>
 }
 
-function AccountRow({ account }: { account: Account }) {
+function AccountRow({ account, poolId }: { account: Account; poolId: number }) {
+  const qc = useQueryClient()
   const { data: stats } = useQuery({
     queryKey: ['account-stats', account.id],
     queryFn: () => accountsApi.stats(account.id),
+  })
+
+  const unlinkMutation = useMutation({
+    mutationFn: () => accountsApi.unlink(account.id, poolId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pool-stats', poolId] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
   })
 
   return (
@@ -76,6 +85,18 @@ function AccountRow({ account }: { account: Account }) {
       </td>
       <td className="px-5 py-3 text-xs text-gray-400 dark:text-gray-500">
         {account.last_used_at ? new Date(account.last_used_at).toLocaleString() : '—'}
+      </td>
+      <td className="px-5 py-3 text-right">
+        <button
+          title="Unlink from pool"
+          onClick={() => {
+            if (confirm(`Unlink "${account.name}" from this pool?`)) unlinkMutation.mutate()
+          }}
+          disabled={unlinkMutation.isPending}
+          className="p-1.5 text-gray-400 hover:text-purple-500 rounded disabled:opacity-50"
+        >
+          <Link2Off className="w-4 h-4" />
+        </button>
       </td>
     </tr>
   )
@@ -183,10 +204,11 @@ export default function PoolDetail() {
                 <th className="px-5 py-2.5 text-left">Tokens today</th>
                 <th className="px-5 py-2.5 text-left">Tokens this week</th>
                 <th className="px-5 py-2.5 text-left">Last used</th>
+                <th className="px-5 py-2.5 text-right"></th>
               </tr>
             </thead>
             <tbody>
-              {accounts.map((acc: Account) => <AccountRow key={acc.id} account={acc} />)}
+              {accounts.map((acc: Account) => <AccountRow key={acc.id} account={acc} poolId={poolId} />)}
             </tbody>
           </table>
         )}

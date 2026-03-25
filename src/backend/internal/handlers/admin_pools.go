@@ -174,7 +174,7 @@ func (h *PoolsHandler) Stats(w http.ResponseWriter, r *http.Request) {
 
 	// Verify pool exists
 	var p database.Pool
-	if err := h.db.First(&p, id).Error; err != nil {
+	if err := h.db.Preload("Accounts").First(&p, id).Error; err != nil {
 		writeJSON(w, http.StatusNotFound, errResp("pool not found"))
 		return
 	}
@@ -190,7 +190,8 @@ func (h *PoolsHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		var reqs, inp, out int64
 		h.db.Model(&database.UsageLog{}).
 			Joins("JOIN claude_accounts ON usage_logs.account_id = claude_accounts.id").
-			Where("claude_accounts.pool_id = ? AND usage_logs.created_at >= ?", id, since).
+			Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
+			Where("account_pools.pool_id = ? AND usage_logs.created_at >= ?", id, since).
 			Select("COUNT(*), COALESCE(SUM(usage_logs.input_tokens),0), COALESCE(SUM(usage_logs.output_tokens),0)").
 			Row().Scan(&reqs, &inp, &out)
 		cost := (float64(inp)/1e6)*3.0 + (float64(out)/1e6)*15.0

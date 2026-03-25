@@ -19,13 +19,13 @@ type Pool struct {
 	DailyTokenQuota   int             `gorm:"default:0" json:"daily_token_quota"`   // 0 = unlimited
 	MonthlyTokenQuota int             `gorm:"default:0" json:"monthly_token_quota"` // 0 = unlimited
 	CreatedAt         time.Time       `json:"created_at"`
-	Accounts          []ClaudeAccount `gorm:"foreignKey:PoolID" json:"accounts,omitempty"`
+	Accounts          []ClaudeAccount `gorm:"many2many:account_pools;joinForeignKey:PoolID;joinReferences:AccountID" json:"accounts,omitempty"`
 }
 
 type ClaudeAccount struct {
 	ID           uint       `gorm:"primarykey" json:"id"`
-	PoolID       uint       `gorm:"not null;index" json:"pool_id"`
-	Pool         *Pool      `gorm:"foreignKey:PoolID" json:"pool,omitempty"`
+	PoolID       *uint      `gorm:"index" json:"pool_id"`                                                                                           // legacy, kept for migration
+	Pools        []*Pool    `gorm:"many2many:account_pools;joinForeignKey:AccountID;joinReferences:PoolID" json:"pools,omitempty"`
 	Name         string     `gorm:"not null" json:"name"`
 	AccessToken  string     `gorm:"not null" json:"-"`
 	RefreshToken string     `gorm:"not null" json:"-"`
@@ -160,6 +160,14 @@ type ConversationLog struct {
 	InputTokens  int       `json:"input_tokens"`
 	OutputTokens int       `json:"output_tokens"`
 	CreatedAt    time.Time `gorm:"index" json:"created_at"`
+}
+
+// AccountPool is a many-to-many join between accounts and pools.
+type AccountPool struct {
+	ID        uint  `gorm:"primarykey" json:"id"`
+	AccountID uint  `gorm:"not null;index;uniqueIndex:account_pool_unique" json:"account_id"`
+	PoolID    uint  `gorm:"not null;index;uniqueIndex:account_pool_unique" json:"pool_id"`
+	Pool      *Pool `gorm:"foreignKey:PoolID" json:"pool,omitempty"`
 }
 
 // UserPool is a many-to-many join between users and pools.

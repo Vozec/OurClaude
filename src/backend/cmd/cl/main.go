@@ -17,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
@@ -178,11 +179,11 @@ func main() {
 	}
 }
 
-// cl login <server_url> [token]
+// ourclaude login <server_url> [token]
 func cmdLogin(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: cl login <server_url> [token]")
-		fmt.Fprintln(os.Stderr, "example: cl login http://proxy.example.com:8080")
+		fmt.Fprintln(os.Stderr, "usage: ourclaude login <server_url> [token]")
+		fmt.Fprintln(os.Stderr, "example: ourclaude login http://proxy.example.com:8080")
 		os.Exit(1)
 	}
 
@@ -237,7 +238,8 @@ func cmdLogin(args []string) {
 
 	fmt.Printf("Logged in to %s\n", serverURL)
 	fmt.Printf("  Config saved to ~/%s\n", configFile)
-	fmt.Printf("\nYou can now use: ourclaude <claude-args>\n")
+
+	offerCredentialImport(serverURL, token)
 }
 
 // ourclaude init <server_url> [token]
@@ -288,11 +290,16 @@ func cmdInit(args []string) {
 	}
 	fmt.Printf("Logged in to %s\n", serverURL)
 
-	// Detect local Claude account
+	offerCredentialImport(serverURL, token)
+}
+
+// offerCredentialImport detects a local Claude account and offers to share it with the proxy.
+// Called by both cmdLogin and cmdInit after saving the config.
+func offerCredentialImport(serverURL, token string) {
 	creds := readLocalCreds()
 	if creds == nil {
 		fmt.Printf("\nNo Claude account found in ~/%s.\n", claudeCredsFile)
-		fmt.Printf("If you have a Claude account, log in with the Claude CLI first.\n")
+		fmt.Printf("If you have a Claude account, log in with the Claude CLI first, then re-run 'ourclaude login'.\n")
 		fmt.Printf("\nYou can now use: ourclaude <claude-args>\n")
 		return
 	}
@@ -318,7 +325,7 @@ func cmdInit(args []string) {
 	scanner.Scan()
 	answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
 	if answer != "y" && answer != "yes" {
-		fmt.Println("Skipped. You can run 'ourclaude init' again any time to share your account.")
+		fmt.Println("Skipped. You can run 'ourclaude login' again any time to share your account.")
 		fmt.Printf("\nYou can now use: ourclaude <claude-args>\n")
 		return
 	}
@@ -628,12 +635,13 @@ func buildEnv(cfg *Config) []string {
 
 	env := os.Environ()
 
-	// Use ANTHROPIC_API_KEY (not ANTHROPIC_AUTH_TOKEN) so the Claude CLI keeps
-	// its OAuth session intact. ANTHROPIC_AUTH_TOKEN replaces the entire auth
-	// layer including OAuth, which breaks MCP configs and the Claude.ai session.
+	// Use ANTHROPIC_AUTH_TOKEN so the proxy token takes full precedence over
+	// any local claude.ai OAuth session, which avoids the "Auth conflict" warning.
+	// Also clear ANTHROPIC_API_KEY so only one auth source is active.
 	overrides := map[string]string{
-		"ANTHROPIC_BASE_URL": cfg.ServerURL + "/proxy",
-		"ANTHROPIC_API_KEY":  cfg.Token,
+		"ANTHROPIC_BASE_URL":   cfg.ServerURL + "/proxy",
+		"ANTHROPIC_AUTH_TOKEN": cfg.Token,
+		"ANTHROPIC_API_KEY":    "",
 	}
 	if host != "" {
 		overrides["NO_PROXY"] = host
@@ -648,7 +656,10 @@ func buildEnv(cfg *Config) []string {
 	}
 
 	for k, v := range overrides {
-		filtered = append(filtered, k+"="+v)
+		if v != "" {
+			filtered = append(filtered, k+"="+v)
+		}
+		// empty value means "unset this var" — already removed from filtered above
 	}
 
 	return filtered
@@ -803,8 +814,9 @@ func ansiVisibleLen(s string) int {
 				i++
 			}
 		} else {
+			_, size := utf8.DecodeRuneInString(s[i:])
 			n++
-			i++
+			i += size
 		}
 	}
 	return n
@@ -898,7 +910,7 @@ func printDashboard(cfg *Config) {
 
 	// Header
 	fmt.Println(dashHR('┌', '┐'))
-	header := " " + ansiBold + ansiCyan + "✦ Multi-Claude" + ansiReset
+	header := " " + ansiBold + ansiCyan + "✦ OurClaude" + ansiReset
 	if me.Name != "" {
 		header += "  ─  " + ansiBold + me.Name + ansiReset
 	}
@@ -1001,7 +1013,7 @@ func printDashboard(cfg *Config) {
 }
 
 func printHelp() {
-	fmt.Print(`ourclaude - Claude CLI wrapper using Multi-Claude proxy
+	fmt.Print(`ourclaude - Claude CLI wrapper using OurClaude proxy
 
 Usage:
   ourclaude init <server_url> [token]    Setup proxy + optionally share your Claude account

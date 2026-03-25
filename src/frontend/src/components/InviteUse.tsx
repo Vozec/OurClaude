@@ -156,7 +156,7 @@ export default function InviteUse() {
           <DarkToggle />
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-xl">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Join Multi-Claude</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Join OurClaude</h1>
           <p className="text-gray-500 dark:text-gray-400 mb-6">Enter your invite token and choose a name to get your API token.</p>
 
           <div className="space-y-4">
