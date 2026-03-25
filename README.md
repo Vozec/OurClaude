@@ -1,8 +1,78 @@
+<div align="center">
+
 # OurClaude
 
-> Multi-user Claude proxy with OAuth account pooling, API key fallback, and real-time admin dashboard.
+> Built on an idea by [pix](https://github.com/pix) who made the initial POC — thanks for the spark.
 
-OurClaude is a self-hosted proxy that sits between Claude Code (or any Anthropic API client) and the Anthropic API. It manages multiple Claude accounts across pools, handles token rotation, tracks usage, and provides a full admin dashboard.
+**From each account according to its quota, to each user according to their needs.**
+
+<img src=".github/image.jpg" alt="OurClaude" width="100%">
+
+*A multi-account Anthropic proxy. Pool your Claude accounts, share the capacity, let everyone work.*
+
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go)](https://go.dev)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)](https://react.dev)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker)](https://docker.com)
+[![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey?style=flat-square)](LICENSE)
+
+</div>
+
+---
+
+## Credits
+
+OurClaude is a full rewrite and expansion of an original proof-of-concept by [**pix**](https://github.com/pix), who had the idea first and built the initial working prototype.
+
+---
+
+## The Problem
+
+Anthropic's rate limits are per account. Claude Pro gives you ~50 messages per 5 hours. Claude Max gives you more, but it's still capped — and it's expensive.
+
+If you're a team of developers all using Claude through Claude Code, you burn through those limits fast. Each person needs their own account, their own subscription, and manages their own credentials. There's no sharing, no visibility, no control.
+
+**OurClaude fixes that.**
+
+You pool multiple Claude accounts together behind a single proxy. Your team connects through one URL with individual tokens — they get Claude Code working as usual, completely unaware of what's happening underneath. The proxy rotates across accounts automatically, refreshes OAuth tokens, enforces per-user quotas, and gives you a full admin dashboard to see who's using what.
+
+The result: more capacity, shared across the team, at a fraction of the cost of giving everyone a Max subscription.
+
+---
+
+## What Is It?
+
+You have multiple Claude accounts. Your team needs Claude. Anthropic has rate limits.
+
+OurClaude sits between your users and Anthropic: it pools all your Claude OAuth accounts, rotates them transparently under load, refreshes tokens automatically, and exposes a single endpoint that's a drop-in replacement for the Anthropic API — no code changes needed.
+
+When all OAuth accounts are exhausted, it automatically falls back to Anthropic API keys if configured.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Your team                           │
+│   Alice          Bob           Carol          Dave          │
+└──────┬───────────┬─────────────┬──────────────┬────────────┘
+       │           │             │              │
+       └───────────┴──────┬──────┴──────────────┘
+                          │  sk-proxy-*
+                    ┌─────▼──────┐
+                    │  OurClaude │  :3000 (admin + proxy)
+                    │            │
+                    └─────┬──────┘
+          ┌───────────────┼───────────────┐
+          │               │               │
+    ┌─────▼─────┐   ┌─────▼─────┐   ┌────▼──────┐
+    │ Account A │   │ Account B │   │ API Key   │
+    │  (active) │   │ (active)  │   │(fallback) │
+    └───────────┘   └───────────┘   └───────────┘
+          │               │               │
+          └───────────────┴───────────────┘
+                          │
+                          ▼
+                  api.anthropic.com
+```
+
+---
 
 ## Features
 
@@ -50,6 +120,8 @@ OurClaude is a self-hosted proxy that sits between Claude Code (or any Anthropic
 - **Swagger API Docs** — Auto-generated from routes at `/docs`
 - **Runtime Settings** — Edit system prompt, cache TTL, rate limits without restart
 
+---
+
 ## Quick Start
 
 ### Docker (recommended)
@@ -75,6 +147,8 @@ cd src/frontend && npm ci && npm run build
 ./ourclaude-server
 ```
 
+---
+
 ## CLI Installation
 
 ### Automatic (recommended)
@@ -93,6 +167,8 @@ chmod +x ourclaude
 sudo mv ourclaude /usr/local/bin/
 ourclaude login https://your-server sk-proxy-xxxxx
 ```
+
+---
 
 ## Configuration
 
@@ -122,25 +198,16 @@ All settings can be configured via environment variables. Runtime-editable setti
 | `RESPONSE_CACHE_TTL_SECONDS` | 0 | Response cache TTL (0=disabled) |
 | `USER_MAX_RPM` | 0 | Default rate limit per user (0=unlimited) |
 
+---
+
 ## API Documentation
 
-Interactive Swagger UI available at `/docs` when the server is running.
+Interactive Swagger UI available at `/docs` when the server is running. The spec is auto-generated from routes — every endpoint is documented.
 
-## Architecture
-
-```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│ Claude Code  │────>│  OurClaude   │────>│ Anthropic API│
-│ (CLI client) │<────│   Proxy      │<────│              │
-└─────────────┘     └──────────────┘     └──────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │ Admin       │
-                    │ Dashboard   │
-                    │ (React SPA) │
-                    └─────────────┘
-```
+---
 
 ## License
 
-Private — All rights reserved.
+This work is licensed under [Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](https://creativecommons.org/licenses/by-nc/4.0/).
+
+You are free to share and adapt this work for non-commercial purposes, with appropriate credit.
