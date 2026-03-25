@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: src/backend/Dockerfile
+      args:
+         CLI_PLATFORMS: linux-amd64
     ports:
       - "${WEB_PORT:-3000}:3000"
     volumes:
