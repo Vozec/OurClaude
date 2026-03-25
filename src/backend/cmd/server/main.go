@@ -14,9 +14,9 @@ import (
 func main() {
 	cfg := config.Load()
 
-	log.Printf("Claude Proxy starting...")
-	log.Printf("  Web UI  → http://0.0.0.0:%s", cfg.WebPort)
-	log.Printf("  Proxy   → http://0.0.0.0:%s", cfg.ProxyPort)
+	log.Printf("OurClaude starting...")
+	log.Printf("  App     → http://0.0.0.0:%s", cfg.WebPort)
+	log.Printf("  Proxy   → http://0.0.0.0:%s/proxy", cfg.WebPort)
 	log.Printf("  DB      → %s (%s)", cfg.DBPath, cfg.DBType)
 
 	db, err := database.New(cfg.DBType, cfg.DBPath, cfg.PostgresDSN)

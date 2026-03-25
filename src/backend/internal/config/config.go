@@ -8,7 +8,6 @@ import (
 
 type Config struct {
 	WebPort           string
-	ProxyPort         string
 	JWTSecret         string
 	JWTExpiry         time.Duration
 	DBType            string // "sqlite" (default) or "postgres"
@@ -48,7 +47,6 @@ func Load() *Config {
 
 	return &Config{
 		WebPort:         getEnv("WEB_PORT", "3000"),
-		ProxyPort:       getEnv("PROXY_PORT", "8080"),
 		JWTSecret:       jwtSecret,
 		JWTExpiry:       jwtExpiry,
 		DBType:          getEnv("DB_TYPE", "sqlite"),

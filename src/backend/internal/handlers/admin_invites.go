@@ -23,7 +23,7 @@ func NewInvitesHandler(db *gorm.DB) *InvitesHandler {
 // GET /api/admin/invites
 func (h *InvitesHandler) List(w http.ResponseWriter, r *http.Request) {
 	var invites []database.InviteToken
-	h.db.Preload("Pool").Order("created_at DESC").Find(&invites)
+	h.db.Preload("Pool").Preload("Pools").Order("created_at DESC").Find(&invites)
 	writeJSON(w, http.StatusOK, invites)
 }
 
@@ -32,6 +32,7 @@ func (h *InvitesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Label     string `json:"label"`
 		PoolID    *uint  `json:"pool_id"`
+		PoolIDs   []uint `json:"pool_ids"`
 		ExpiresIn int    `json:"expires_in_hours"` // default 72
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -43,18 +44,34 @@ func (h *InvitesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.ExpiresIn = 72
 	}
 
+	// Merge pool_id + pool_ids into a unified list
+	poolIDs := req.PoolIDs
+	if len(poolIDs) == 0 && req.PoolID != nil {
+		poolIDs = []uint{*req.PoolID}
+	}
+	// Keep legacy pool_id as first entry
+	primaryPoolID := req.PoolID
+	if primaryPoolID == nil && len(poolIDs) > 0 {
+		primaryPoolID = &poolIDs[0]
+	}
+
 	token := strings.ReplaceAll(uuid.New().String(), "-", "") +
 		strings.ReplaceAll(uuid.New().String(), "-", "")
 
 	invite := database.InviteToken{
 		Token:     token,
-		PoolID:    req.PoolID,
+		PoolID:    primaryPoolID,
 		Label:     req.Label,
 		ExpiresAt: time.Now().Add(time.Duration(req.ExpiresIn) * time.Hour),
 	}
 	if err := h.db.Create(&invite).Error; err != nil {
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to create invite"))
 		return
+	}
+
+	// Sync invite_pools
+	for _, pid := range poolIDs {
+		h.db.Create(&database.InvitePool{InviteID: invite.ID, PoolID: pid})
 	}
 
 	logAudit(h.db, r, "create_invite", "invite:"+invite.Label, "")
@@ -65,6 +82,7 @@ func (h *InvitesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		"token":      token, // full token
 		"label":      invite.Label,
 		"pool_id":    invite.PoolID,
+		"pool_ids":   poolIDs,
 		"expires_at": invite.ExpiresAt,
 	})
 }
@@ -129,6 +147,17 @@ func (h *InvitesHandler) Use(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sync pools from invite (many-to-many)
+	var invitePools []database.InvitePool
+	h.db.Where("invite_id = ?", invite.ID).Find(&invitePools)
+	for _, ip := range invitePools {
+		h.db.Create(&database.UserPool{UserID: user.ID, PoolID: ip.PoolID})
+	}
+	// Ensure legacy pool_id is set when invite had no single pool_id but has multi-pools
+	if invite.PoolID == nil && len(invitePools) > 0 {
+		h.db.Model(&database.User{}).Where("id = ?", user.ID).Update("pool_id", invitePools[0].PoolID)
+	}
+
 	// Mark invite as used
 	now := time.Now()
 	h.db.Model(&invite).Updates(map[string]interface{}{
@@ -136,9 +165,13 @@ func (h *InvitesHandler) Use(w http.ResponseWriter, r *http.Request) {
 		"used_by": req.Name,
 	})
 
+	// Auto-generate one-time pre-auth download links for each platform
+	downloadLinks := CreateLinksForUser(h.db, user.ID, 1)
+
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"name":      user.Name,
-		"api_token": apiToken,
-		"pool":      invite.Pool,
+		"name":           user.Name,
+		"api_token":      apiToken,
+		"pool":           invite.Pool,
+		"download_links": downloadLinks,
 	})
 }

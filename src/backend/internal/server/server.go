@@ -87,6 +87,10 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	invitesH := handlers.NewInvitesHandler(s.db)
 	r.Post("/api/invite/use", invitesH.Use)
 
+	// Public: setup link (returns user onboarding info without admin auth)
+	usersH := handlers.NewUsersHandler(s.db)
+	r.Get("/api/setup/{token}", usersH.SetupLinkFetch)
+
 	authMw := middleware.Authenticate(s.cfg)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw)
@@ -98,13 +102,13 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Put("/api/auth/password", authH.ChangePassword)
 
 		// Users
-		usersH := handlers.NewUsersHandler(s.db)
 		r.Get("/api/admin/users", usersH.List)
 		r.Post("/api/admin/users", usersH.Create)
 		r.Get("/api/admin/users/{id}", usersH.Get)
 		r.Put("/api/admin/users/{id}", usersH.Update)
 		r.Delete("/api/admin/users/{id}", usersH.Delete)
 		r.Post("/api/admin/users/{id}/rotate-token", usersH.RotateToken)
+		r.Post("/api/admin/users/{id}/setup-link", usersH.GenerateSetupLink)
 
 		// Pools
 		poolsH := handlers.NewPoolsHandler(s.db, s.poolMgr)
@@ -212,10 +216,9 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	r.Get("/api/user/owned-account", userSelfH.OwnedAccount)
 	r.Get("/api/user/pool-status", userSelfH.PoolStatus)
 
-	// Anthropic proxy — also mounted on the admin port so users only need one URL.
-	// Any /v1/* request that isn't a defined admin API route hits the proxy.
+	// Anthropic proxy mounted at /proxy — ANTHROPIC_BASE_URL=http://server:3000/proxy
 	proxyH := proxy.New(s.db, s.poolMgr, s.cfg.AnthropicURL, s.cfg.UserMaxRPM, s.cfg.RedisURL, s.cfg.PromptCacheInject, s.webhooks, s.logStream)
-	r.Handle("/v1/*", proxyH)
+	r.Mount("/proxy", proxyH)
 
 	r.Get("/*", s.frontendHandler())
 
@@ -279,25 +282,6 @@ func (s *Server) frontendHandler() http.HandlerFunc {
 	}
 }
 
-func (s *Server) SetupProxyHandler() http.Handler {
-	r := chi.NewRouter()
-
-	// User self-service also accessible on the proxy port (for cl usage/update commands)
-	userSelfH := handlers.NewUserSelfHandler(s.db, s.cfg.DistDir, s.enc)
-	r.Get("/api/user/me", userSelfH.Me)
-	r.Get("/api/user/usage", userSelfH.Usage)
-	r.Post("/api/user/rotate-token", userSelfH.RotateToken)
-	r.Get("/api/user/update", userSelfH.Update)
-	r.Post("/api/user/import-account", userSelfH.ImportAccount)
-	r.Get("/api/user/owned-account", userSelfH.OwnedAccount)
-	r.Get("/api/user/pool-status", userSelfH.PoolStatus)
-
-	// Everything else → Anthropic proxy
-	proxyH := proxy.New(s.db, s.poolMgr, s.cfg.AnthropicURL, s.cfg.UserMaxRPM, s.cfg.RedisURL, s.cfg.PromptCacheInject, s.webhooks, s.logStream)
-	r.Handle("/*", proxyH)
-
-	return r
-}
 
 func (s *Server) Start() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -306,26 +290,12 @@ func (s *Server) Start() error {
 	s.poolMgr.StartAutoReset(ctx, s.cfg.PoolResetInterval)
 	s.poolMgr.StartHealthCheck(ctx, s.cfg.HealthCheckInterval, s.cfg.AnthropicURL)
 
-	adminRouter := s.SetupAdminRouter()
-	proxyHandler := s.SetupProxyHandler()
+	router := s.SetupAdminRouter()
 
-	errCh := make(chan error, 2)
-
-	go func() {
-		addr := fmt.Sprintf("0.0.0.0:%s", s.cfg.WebPort)
-		log.Printf("Admin UI listening on http://%s", addr)
-		if err := http.ListenAndServe(addr, adminRouter); err != nil {
-			errCh <- fmt.Errorf("admin server: %w", err)
-		}
-	}()
-
-	go func() {
-		addr := fmt.Sprintf("0.0.0.0:%s", s.cfg.ProxyPort)
-		log.Printf("Proxy listening on http://%s", addr)
-		if err := http.ListenAndServe(addr, proxyHandler); err != nil {
-			errCh <- fmt.Errorf("proxy server: %w", err)
-		}
-	}()
-
-	return <-errCh
+	addr := fmt.Sprintf("0.0.0.0:%s", s.cfg.WebPort)
+	log.Printf("OurClaude listening on http://%s  (proxy at /proxy)", addr)
+	if err := http.ListenAndServe(addr, router); err != nil {
+		return fmt.Errorf("server: %w", err)
+	}
+	return nil
 }

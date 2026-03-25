@@ -632,7 +632,7 @@ func buildEnv(cfg *Config) []string {
 	// its OAuth session intact. ANTHROPIC_AUTH_TOKEN replaces the entire auth
 	// layer including OAuth, which breaks MCP configs and the Claude.ai session.
 	overrides := map[string]string{
-		"ANTHROPIC_BASE_URL": cfg.ServerURL,
+		"ANTHROPIC_BASE_URL": cfg.ServerURL + "/proxy",
 		"ANTHROPIC_API_KEY":  cfg.Token,
 	}
 	if host != "" {

@@ -2,8 +2,6 @@
 
 # OurClaude
 
-> Built on an idea by [pix](https://github.com/pix) who made the initial POC — thanks for the spark.
-
 **From each account according to its quota, to each user according to their needs.**
 
 <img src=".github/image.jpg" alt="OurClaude" width="100%">
@@ -54,7 +52,7 @@ OurClaude sits between your users and Anthropic: it pools all your Claude OAuth 
        └───────────┴──────┬──────┴──────────────┘
                           │  sk-proxy-*
                     ┌─────▼──────┐
-                    │  OurClaude │  :3000 admin  :8080 proxy
+                    │  OurClaude │  :3000  (admin + proxy at /proxy)
                     │            │
                     └─────┬──────┘
           ┌───────────────┼───────────────┐
@@ -138,7 +136,7 @@ Go to *Accounts → Add account* and paste the content of `~/.claude/.credential
 **Drop-in replacement for the Anthropic API:**
 
 ```bash
-export ANTHROPIC_BASE_URL=http://your-server:8080
+export ANTHROPIC_BASE_URL=http://your-server:3000/proxy
 export ANTHROPIC_API_KEY=sk-proxy-xxxxxxxxxxxxxxxx
 claude "hello"
 ```
@@ -147,7 +145,7 @@ claude "hello"
 
 ```bash
 # One-time setup
-ourclaude init http://your-server:8080
+ourclaude init http://your-server:3000
 
 # Use Claude normally — a usage dashboard appears before each session
 ourclaude

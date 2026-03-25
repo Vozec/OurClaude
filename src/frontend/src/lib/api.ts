@@ -42,6 +42,11 @@ export const authApi = {
                     put('/auth/password', { current_password, new_password }),
 }
 
+// Setup links
+export const setupApi = {
+  get: (token: string) => get<SetupLinkData>(`/setup/${token}`),
+}
+
 // Users
 export const usersApi = {
   list:        () => get<User[]>('/admin/users'),
@@ -70,8 +75,9 @@ export const usersApi = {
                   monthly_budget_usd: number
                   extra_headers: string
                 }>) => put<User>(`/admin/users/${id}`, body),
-  delete:      (id: number) => del(`/admin/users/${id}`),
-  rotateToken: (id: number) => post<{ api_token: string }>(`/admin/users/${id}/rotate-token`),
+  delete:           (id: number) => del(`/admin/users/${id}`),
+  rotateToken:      (id: number) => post<{ api_token: string }>(`/admin/users/${id}/rotate-token`),
+  generateSetupLink:(id: number) => post<{ url: string }>(`/admin/users/${id}/setup-link`),
 }
 
 // Pools
@@ -147,11 +153,11 @@ export const webhooksApi = {
 // Invites
 export const invitesApi = {
   list:   () => get<Invite[]>('/admin/invites'),
-  create: (body: { label?: string; pool_id?: number; expires_in_hours?: number }) =>
+  create: (body: { label?: string; pool_id?: number; pool_ids?: number[]; expires_in_hours?: number }) =>
             post<InviteCreated>('/admin/invites', body),
   delete: (id: number) => del(`/admin/invites/${id}`),
   use:    (body: { token: string; name: string }) =>
-            post<{ name: string; api_token: string }>('/invite/use', body),
+            post<{ name: string; api_token: string; download_links?: Record<string, string> }>('/invite/use', body),
 }
 
 // Audit
@@ -319,6 +325,7 @@ export interface Invite {
   label: string
   pool_id?: number
   pool?: Pool
+  pools?: Pool[]
   expires_at: string
   used_at?: string
   used_by?: string
@@ -330,7 +337,15 @@ export interface InviteCreated {
   token: string
   label: string
   pool_id?: number
+  pool_ids?: number[]
   expires_at: string
+}
+
+export interface SetupLinkData {
+  name: string
+  api_token: string
+  pools: Pool[]
+  download_links: Record<string, string>
 }
 
 export interface AuditEntry {

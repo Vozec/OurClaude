@@ -96,10 +96,11 @@ type InviteToken struct {
 	Token     string     `gorm:"uniqueIndex;not null" json:"token"`
 	PoolID    *uint      `json:"pool_id"`
 	Pool      *Pool      `gorm:"foreignKey:PoolID" json:"pool,omitempty"`
+	Pools     []*Pool    `gorm:"many2many:invite_pools;joinForeignKey:InviteID;joinReferences:PoolID" json:"pools,omitempty"`
 	Label     string     `json:"label"`
 	ExpiresAt time.Time  `json:"expires_at"`
 	UsedAt    *time.Time `json:"used_at,omitempty"`
-	UsedBy    string     `json:"used_by,omitempty"` // email of user who accepted
+	UsedBy    string     `json:"used_by,omitempty"` // name of user who accepted
 	CreatedAt time.Time  `json:"created_at"`
 }
 
@@ -132,6 +133,8 @@ type DownloadLink struct {
 	Revoked      bool       `gorm:"default:false" json:"revoked"`
 	BinaryKey    string     `json:"binary_key,omitempty"` // unique key embedded in the served binary
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	UserID       *uint      `gorm:"index" json:"user_id,omitempty"` // user this link was generated for
+	User         *User      `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 }
 
@@ -165,4 +168,22 @@ type UserPool struct {
 	UserID uint  `gorm:"not null;index;uniqueIndex:user_pool_unique" json:"user_id"`
 	PoolID uint  `gorm:"not null;index;uniqueIndex:user_pool_unique" json:"pool_id"`
 	Pool   *Pool `gorm:"foreignKey:PoolID" json:"pool,omitempty"`
+}
+
+// InvitePool is a many-to-many join between invites and pools.
+type InvitePool struct {
+	ID       uint  `gorm:"primarykey" json:"id"`
+	InviteID uint  `gorm:"not null;index;uniqueIndex:invite_pool_unique" json:"invite_id"`
+	PoolID   uint  `gorm:"not null;index;uniqueIndex:invite_pool_unique" json:"pool_id"`
+	Pool     *Pool `gorm:"foreignKey:PoolID" json:"pool,omitempty"`
+}
+
+// SetupToken is a temporary link that lets a user view their own onboarding info.
+type SetupToken struct {
+	ID        uint      `gorm:"primarykey" json:"id"`
+	Token     string    `gorm:"uniqueIndex;not null" json:"token"`
+	UserID    uint      `gorm:"not null;index" json:"user_id"`
+	User      *User     `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
 }

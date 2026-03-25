@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, poolsApi, User, Pool } from '../lib/api'
-import { Plus, RotateCcw, Trash2, Edit2, Copy, Check, Clock, Gauge, Terminal } from 'lucide-react'
+import { Plus, RotateCcw, Trash2, Edit2, Copy, Check, Clock, Gauge, Terminal, Link2 } from 'lucide-react'
 
 function Badge({ active }: { active: boolean }) {
   return (
@@ -323,6 +323,7 @@ function PoolBadges({ user }: { user: User }) {
 export default function Users() {
   const [showCreate, setShowCreate] = useState(false)
   const [editUser, setEditUser]     = useState<User | null>(null)
+  const [setupLinkCopied, setSetupLinkCopied] = useState<number | null>(null)
   const qc = useQueryClient()
 
   const { data: users = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
@@ -335,6 +336,14 @@ export default function Users() {
   const rotateMutation = useMutation({
     mutationFn: usersApi.rotateToken,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  })
+  const setupLinkMutation = useMutation({
+    mutationFn: (userId: number) => usersApi.generateSetupLink(userId),
+    onSuccess: (data, userId) => {
+      navigator.clipboard.writeText(`${window.location.origin}${data.url}`)
+      setSetupLinkCopied(userId)
+      setTimeout(() => setSetupLinkCopied(null), 3000)
+    },
   })
 
   return (
@@ -399,8 +408,8 @@ export default function Users() {
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        title="Copy cl login command"
-                        onClick={() => navigator.clipboard.writeText(`cl login ${window.location.origin} ${user.api_token}`)}
+                        title="Copy ourclaude login command"
+                        onClick={() => navigator.clipboard.writeText(`ourclaude login ${window.location.origin} ${user.api_token}`)}
                         className="p-1.5 text-gray-400 hover:text-brand-500 rounded"
                       >
                         <Terminal className="w-4 h-4" />
@@ -410,6 +419,15 @@ export default function Users() {
                       </button>
                       <button title="Rotate token" onClick={() => rotateMutation.mutate(user.id)} className="p-1.5 text-gray-400 hover:text-yellow-500 rounded">
                         <RotateCcw className="w-4 h-4" />
+                      </button>
+                      <button
+                        title="Generate setup link (copied to clipboard)"
+                        onClick={() => setupLinkMutation.mutate(user.id)}
+                        className="p-1.5 text-gray-400 hover:text-green-500 rounded"
+                      >
+                        {setupLinkCopied === user.id
+                          ? <Check className="w-4 h-4 text-green-500" />
+                          : <Link2 className="w-4 h-4" />}
                       </button>
                       <button
                         title="Delete"

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
-import { invitesApi } from '../lib/api'
+import { setupApi, SetupLinkData } from '../lib/api'
 import { Copy, Check, Terminal, Download, Moon, Sun } from 'lucide-react'
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
@@ -47,13 +46,49 @@ const PLATFORMS = [
   { id: 'windows-amd64', label: 'Windows x64' },
 ]
 
-function SuccessScreen({ name, apiToken, downloadLinks = {} }: {
-  name: string
-  apiToken: string
-  downloadLinks?: Record<string, string>
-}) {
+export default function SetupLink() {
+  const { token } = useParams<{ token: string }>()
+  const [data, setData] = useState<SetupLinkData | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (localStorage.getItem('theme') !== 'light') {
+      document.documentElement.classList.add('dark')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!token) { setError('Invalid link'); setLoading(false); return }
+    setupApi.get(token)
+      .then(d => { setData(d); setLoading(false) })
+      .catch(e => { setError(e.message); setLoading(false) })
+  }, [token])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500" />
+      </div>
+    )
+  }
+
+  if (error || !data) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <div className="text-center max-w-sm">
+          <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto mb-4">
+            <span className="text-red-500 text-xl font-bold">!</span>
+          </div>
+          <h1 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Link expired</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">This setup link has expired or is invalid. Ask an admin to generate a new one.</p>
+        </div>
+      </div>
+    )
+  }
+
   const origin = window.location.origin
-  const loginCmd = `./ourclaude login ${origin} ${apiToken}`
+  const loginCmd = `./ourclaude login ${origin} ${data.api_token}`
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4">
@@ -68,8 +103,15 @@ function SuccessScreen({ name, apiToken, downloadLinks = {} }: {
             <Check className="w-5 h-5 text-green-600 dark:text-green-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Account created!</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Welcome, <span className="font-medium text-gray-700 dark:text-gray-300">{name}</span></p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Account ready!</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Welcome, <span className="font-medium text-gray-700 dark:text-gray-300">{data.name}</span>
+              {data.pools && data.pools.length > 0 && (
+                <span className="ml-1">
+                  — pool{data.pools.length > 1 ? 's' : ''}: {data.pools.map(p => p.name).join(', ')}
+                </span>
+              )}
+            </p>
           </div>
         </div>
 
@@ -84,7 +126,7 @@ function SuccessScreen({ name, apiToken, downloadLinks = {} }: {
           </div>
           <div className="flex flex-wrap gap-2">
             {PLATFORMS.map(p => {
-              const dlPath = downloadLinks[p.id] ?? `/api/downloads/${p.id}`
+              const dlPath = data.download_links[p.id] ?? `/api/downloads/${p.id}`
               return (
                 <a
                   key={p.id}
@@ -111,86 +153,18 @@ function SuccessScreen({ name, apiToken, downloadLinks = {} }: {
             <code className="flex-1 text-xs text-green-400 font-mono break-all">{loginCmd}</code>
             <CopyButton text={loginCmd} />
           </div>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">Run this after <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">chmod +x ./ourclaude</code></p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+            Run this after <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">chmod +x ./ourclaude</code>
+          </p>
         </div>
 
         {/* API token */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Your API token — save it, won't be shown again</p>
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Your API token</p>
           <div className="flex items-center bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
-            <code className="flex-1 font-mono text-sm text-gray-800 dark:text-gray-200 break-all">{apiToken}</code>
-            <CopyButton text={apiToken} />
+            <code className="flex-1 font-mono text-sm text-gray-800 dark:text-gray-200 break-all">{data.api_token}</code>
+            <CopyButton text={data.api_token} />
           </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default function InviteUse() {
-  const { token: urlToken } = useParams<{ token?: string }>()
-  const [token, setToken] = useState(urlToken ?? '')
-  const [name, setName] = useState('')
-  const [result, setResult] = useState<{ name: string; api_token: string; download_links?: Record<string, string> } | null>(null)
-
-  // Initialize dark mode (self-contained, outside Layout)
-  useEffect(() => {
-    if (localStorage.getItem('theme') !== 'light') {
-      document.documentElement.classList.add('dark')
-    }
-  }, [])
-
-  const mutation = useMutation({
-    mutationFn: () => invitesApi.use({ token, name }),
-    onSuccess: (data) => setResult(data),
-  })
-
-  if (result) {
-    return <SuccessScreen name={result.name} apiToken={result.api_token} downloadLinks={result.download_links} />
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="flex justify-end mb-4">
-          <DarkToggle />
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-xl">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Join Multi-Claude</h1>
-          <p className="text-gray-500 dark:text-gray-400 mb-6">Enter your invite token and choose a name to get your API token.</p>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Invite token</label>
-              <input
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-                value={token}
-                onChange={e => setToken(e.target.value)}
-                placeholder="Paste your invite token here"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Your name</label>
-              <input
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="Alice"
-                onKeyDown={e => e.key === 'Enter' && !mutation.isPending && token && name && mutation.mutate()}
-              />
-            </div>
-            {mutation.isError && (
-              <p className="text-sm text-red-600">{(mutation.error as Error).message}</p>
-            )}
-          </div>
-
-          <button
-            onClick={() => mutation.mutate()}
-            disabled={!token || !name || mutation.isPending}
-            className="mt-6 w-full px-4 py-2.5 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50 transition-colors"
-          >
-            {mutation.isPending ? 'Creating account...' : 'Create account'}
-          </button>
         </div>
       </div>
     </div>

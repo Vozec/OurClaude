@@ -20,11 +20,11 @@ import (
 
 // platforms maps platform identifiers to their binary filenames.
 var platforms = map[string]string{
-	"linux-amd64":   "cl-linux-amd64",
-	"linux-arm64":   "cl-linux-arm64",
-	"darwin-amd64":  "cl-darwin-amd64",
-	"darwin-arm64":  "cl-darwin-arm64",
-	"windows-amd64": "cl-windows-amd64.exe",
+	"linux-amd64":   "ourclaude-linux-amd64",
+	"linux-arm64":   "ourclaude-linux-arm64",
+	"darwin-amd64":  "ourclaude-darwin-amd64",
+	"darwin-arm64":  "ourclaude-darwin-arm64",
+	"windows-amd64": "ourclaude-windows-amd64.exe",
 }
 
 // binarySentinel is the prefix we search for in the binary to embed a unique key.
@@ -240,4 +240,25 @@ func (h *DownloadsHandler) ListBinaryDownloads(w http.ResponseWriter, r *http.Re
 	var records []database.UserBinaryDownload
 	h.db.Preload("User").Order("downloaded_at desc").Find(&records)
 	writeJSON(w, http.StatusOK, records)
+}
+
+// CreateLinksForUser creates one pre-auth download link per platform for the given user.
+// Returns a map of platform → "/dl/{token}" path.
+// maxDownloads: 0 = unlimited, 1 = single-use.
+func CreateLinksForUser(db *gorm.DB, userID uint, maxDownloads int) map[string]string {
+	links := make(map[string]string)
+	for platform := range platforms {
+		uid := userID
+		link := database.DownloadLink{
+			Token:        "dl-" + strings.ReplaceAll(uuid.New().String(), "-", ""),
+			Label:        "auto-" + platform,
+			Platform:     platform,
+			MaxDownloads: maxDownloads,
+			UserID:       &uid,
+		}
+		if err := db.Create(&link).Error; err == nil {
+			links[platform] = "/dl/" + link.Token
+		}
+	}
+	return links
 }

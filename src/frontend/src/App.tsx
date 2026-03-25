@@ -19,6 +19,7 @@ import ModelAliases from './components/ModelAliases'
 import Sessions from './components/Sessions'
 import InviteUse from './components/InviteUse'
 import PoolDetail from './components/PoolDetail'
+import SetupLink from './components/SetupLink'
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/invite" element={<InviteUse />} />
         <Route path="/invite/:token" element={<InviteUse />} />
+        <Route path="/setup/:token" element={<SetupLink />} />
         <Route path="/*" element={<PrivateRoutes />} />
       </Routes>
     </BrowserRouter>

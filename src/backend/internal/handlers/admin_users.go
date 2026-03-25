@@ -243,6 +243,59 @@ func (h *UsersHandler) RotateToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"api_token": token})
 }
 
+// GenerateSetupLink creates a 48h setup link for an existing user.
+// POST /api/admin/users/{id}/setup-link
+func (h *UsersHandler) GenerateSetupLink(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
+		return
+	}
+	var user database.User
+	if err := h.db.First(&user, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("user not found"))
+		return
+	}
+	token := strings.ReplaceAll(uuid.New().String(), "-", "") +
+		strings.ReplaceAll(uuid.New().String(), "-", "")
+	setup := database.SetupToken{
+		Token:     token,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(48 * time.Hour),
+	}
+	if err := h.db.Create(&setup).Error; err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed to create setup link"))
+		return
+	}
+	logAudit(h.db, r, "generate_setup_link", "user:"+user.Name, "")
+	writeJSON(w, http.StatusCreated, map[string]string{"url": "/setup/" + token})
+}
+
+// SetupLinkFetch returns user info and pre-auth download links for a valid setup token.
+// GET /api/setup/{token} — public
+func (h *UsersHandler) SetupLinkFetch(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	var setup database.SetupToken
+	if err := h.db.Where("token = ? AND expires_at > ?", token, time.Now()).
+		First(&setup).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("setup link not found or expired"))
+		return
+	}
+	var user database.User
+	if err := h.db.Preload("Pools").First(&user, setup.UserID).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("user not found"))
+		return
+	}
+	// Unlimited downloads for setup links so user can install on multiple machines
+	downloadLinks := CreateLinksForUser(h.db, user.ID, 0)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"name":           user.Name,
+		"api_token":      user.APIToken,
+		"pools":          user.Pools,
+		"download_links": downloadLinks,
+	})
+}
+
 // syncUserPools replaces all user_pools entries for userID with the given poolIDs.
 func syncUserPools(db *gorm.DB, userID uint, poolIDs []uint) {
 	db.Where("user_id = ?", userID).Delete(&database.UserPool{})

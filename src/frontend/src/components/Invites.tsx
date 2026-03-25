@@ -1,7 +1,36 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { invitesApi, poolsApi, Invite, InviteCreated } from '../lib/api'
+import { invitesApi, poolsApi, Invite, InviteCreated, Pool } from '../lib/api'
 import { Plus, Trash2, Copy, Check } from 'lucide-react'
+
+function PoolCheckboxList({ pools, selected, onChange }: {
+  pools: Pool[]
+  selected: number[]
+  onChange: (ids: number[]) => void
+}) {
+  function toggle(id: number) {
+    onChange(selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id])
+  }
+  if (pools.length === 0) {
+    return <p className="text-sm text-gray-400 dark:text-gray-500 italic">No pools available.</p>
+  }
+  return (
+    <div className="border border-gray-200 dark:border-gray-600 rounded-lg max-h-36 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+      {pools.map(p => (
+        <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+          <input
+            type="checkbox"
+            checked={selected.includes(p.id)}
+            onChange={() => toggle(p.id)}
+            className="w-4 h-4 text-brand-500 rounded"
+          />
+          <span className="text-sm text-gray-700 dark:text-gray-300">{p.name}</span>
+          {p.description && <span className="text-xs text-gray-400 dark:text-gray-500 truncate">{p.description}</span>}
+        </label>
+      ))}
+    </div>
+  )
+}
 
 function CopyLink({ token, serverUrl }: { token: string; serverUrl: string }) {
   const [copied, setCopied] = useState(false)
@@ -21,7 +50,7 @@ function CopyLink({ token, serverUrl }: { token: string; serverUrl: string }) {
 
 function CreateInviteModal({ onClose }: { onClose: () => void }) {
   const [label, setLabel]       = useState('')
-  const [poolId, setPoolId]     = useState<string>('')
+  const [poolIds, setPoolIds]   = useState<number[]>([])
   const [hours, setHours]       = useState('72')
   const [created, setCreated]   = useState<InviteCreated | null>(null)
   const [error, setError]       = useState('')
@@ -32,7 +61,7 @@ function CreateInviteModal({ onClose }: { onClose: () => void }) {
   const mutation = useMutation({
     mutationFn: () => invitesApi.create({
       label,
-      ...(poolId ? { pool_id: Number(poolId) } : {}),
+      pool_ids: poolIds,
       expires_in_hours: Number(hours),
     }),
     onSuccess: (data) => {
@@ -79,14 +108,13 @@ function CreateInviteModal({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assign to pool (optional)</label>
-            <select
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm dark:bg-gray-700 dark:text-white"
-              value={poolId} onChange={e => setPoolId(e.target.value)}
-            >
-              <option value="">No pool</option>
-              {pools.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assign to pools (optional)</label>
+            <PoolCheckboxList pools={pools} selected={poolIds} onChange={setPoolIds} />
+            {poolIds.length > 0 && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                {poolIds.length} pool{poolIds.length > 1 ? 's' : ''} selected
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Expires in (hours)</label>
@@ -163,7 +191,17 @@ export default function Invites() {
                 return (
                   <tr key={invite.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">{invite.label || '—'}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{invite.pool?.name ?? '—'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                      {invite.pools && invite.pools.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {invite.pools.map(p => (
+                            <span key={p.id} className="px-1.5 py-0.5 bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400 rounded text-xs font-medium">
+                              {p.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : invite.pool?.name ?? '—'}
+                    </td>
                     <td className="px-6 py-4 max-w-xs">
                       {!invite.used_at && !expired
                         ? <CopyLink token={invite.token} serverUrl={window.location.origin} />
