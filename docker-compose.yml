@@ -5,8 +5,8 @@ services:
       dockerfile: src/backend/Dockerfile
     ports:
       - "${WEB_PORT:-3000}:3000"
-    # volumes:
-      # - claude_proxy_data:/data
+    volumes:
+      - ./data:/data
     environment:
       - WEB_PORT=3000
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
@@ -33,5 +33,3 @@ services:
       retries: 3
       start_period: 10s
 
-# volumes:
-  # claude_proxy_data:

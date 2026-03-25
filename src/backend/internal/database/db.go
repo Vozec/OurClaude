@@ -66,35 +66,10 @@ func New(dbType, path, dsn string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	// Migrate existing pool_id assignments to account_pools join table (backward compat).
-	db.Exec(`
-		INSERT INTO account_pools (account_id, pool_id)
-		SELECT id, pool_id FROM claude_accounts
-		WHERE pool_id IS NOT NULL
-		AND NOT EXISTS (
-			SELECT 1 FROM account_pools ap WHERE ap.account_id = claude_accounts.id AND ap.pool_id = claude_accounts.pool_id
-		)
-	`)
-
-	// Migrate existing pool_id assignments to user_pools join table (backward compat).
-	db.Exec(`
-		INSERT INTO user_pools (user_id, pool_id)
-		SELECT id, pool_id FROM users
-		WHERE pool_id IS NOT NULL
-		AND NOT EXISTS (
-			SELECT 1 FROM user_pools up WHERE up.user_id = users.id AND up.pool_id = users.pool_id
-		)
-	`)
-
-	// Migrate existing pool_id assignments to invite_pools join table (backward compat).
-	db.Exec(`
-		INSERT INTO invite_pools (invite_id, pool_id)
-		SELECT id, pool_id FROM invite_tokens
-		WHERE pool_id IS NOT NULL
-		AND NOT EXISTS (
-			SELECT 1 FROM invite_pools ip WHERE ip.invite_id = invite_tokens.id AND ip.pool_id = invite_tokens.pool_id
-		)
-	`)
+	// Composite indexes for frequent query patterns
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_usage_user_created ON usage_logs(user_id, created_at)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_usage_account_created ON usage_logs(account_id, created_at)")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_conv_user_created ON conversation_logs(user_id, created_at)")
 
 	return db, nil
 }

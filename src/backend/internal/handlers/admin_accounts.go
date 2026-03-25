@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -48,63 +49,82 @@ type credentialsJSON struct {
 func (h *AccountsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name            string `json:"name"`
-		PoolID          *uint  `json:"pool_id"`  // legacy single pool
-		PoolIDs         []uint `json:"pool_ids"` // multi-pool
-		CredentialsJSON string `json:"credentials_json"`
+		PoolIDs         []uint `json:"pool_ids"`
+		AccountType     string `json:"account_type"`     // "oauth" (default) or "apikey"
+		CredentialsJSON string `json:"credentials_json"` // for oauth
+		APIKey          string `json:"api_key"`           // for apikey
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
 		return
 	}
 
-	if req.Name == "" || req.CredentialsJSON == "" {
-		writeJSON(w, http.StatusBadRequest, errResp("name and credentials_json are required"))
+	if req.Name == "" {
+		writeJSON(w, http.StatusBadRequest, errResp("name is required"))
 		return
 	}
 
-	// Parse credentials
-	var creds credentialsJSON
-	if err := json.Unmarshal([]byte(req.CredentialsJSON), &creds); err != nil {
-		writeJSON(w, http.StatusBadRequest, errResp("invalid credentials JSON format"))
-		return
-	}
+	var account database.ClaudeAccount
 
-	if creds.ClaudeAiOauth.AccessToken == "" || creds.ClaudeAiOauth.RefreshToken == "" {
-		writeJSON(w, http.StatusBadRequest, errResp("credentials must contain claudeAiOauth.accessToken and claudeAiOauth.refreshToken"))
-		return
-	}
-
-	var expiresAt time.Time
-	if creds.ClaudeAiOauth.ExpiresAt > 0 {
-		expiresAt = time.UnixMilli(creds.ClaudeAiOauth.ExpiresAt)
+	if req.AccountType == "apikey" {
+		// API key account
+		if req.APIKey == "" {
+			writeJSON(w, http.StatusBadRequest, errResp("api_key is required for API key accounts"))
+			return
+		}
+		encKey, err := h.enc.Encrypt(req.APIKey)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt API key"))
+			return
+		}
+		encEmpty, _ := h.enc.Encrypt("")
+		account = database.ClaudeAccount{
+			Name:         req.Name,
+			AccountType:  "apikey",
+			AccessToken:  encKey,
+			RefreshToken: encEmpty,
+			ExpiresAt:    time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC),
+			Status:       "disabled",
+		}
 	} else {
-		expiresAt = time.Now().Add(1 * time.Hour)
-	}
-
-	// Encrypt tokens
-	encAccess, err := h.enc.Encrypt(creds.ClaudeAiOauth.AccessToken)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt access token"))
-		return
-	}
-	encRefresh, err := h.enc.Encrypt(creds.ClaudeAiOauth.RefreshToken)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt refresh token"))
-		return
-	}
-
-	// Merge pool_id into pool_ids for backward compat
-	poolIDs := req.PoolIDs
-	if len(poolIDs) == 0 && req.PoolID != nil && *req.PoolID != 0 {
-		poolIDs = []uint{*req.PoolID}
-	}
-
-	account := database.ClaudeAccount{
-		Name:         req.Name,
-		AccessToken:  encAccess,
-		RefreshToken: encRefresh,
-		ExpiresAt:    expiresAt,
-		Status:       "active",
+		// OAuth account (default)
+		if req.CredentialsJSON == "" {
+			writeJSON(w, http.StatusBadRequest, errResp("credentials_json is required for OAuth accounts"))
+			return
+		}
+		var creds credentialsJSON
+		if err := json.Unmarshal([]byte(req.CredentialsJSON), &creds); err != nil {
+			writeJSON(w, http.StatusBadRequest, errResp("invalid credentials JSON format"))
+			return
+		}
+		if creds.ClaudeAiOauth.AccessToken == "" || creds.ClaudeAiOauth.RefreshToken == "" {
+			writeJSON(w, http.StatusBadRequest, errResp("credentials must contain claudeAiOauth.accessToken and claudeAiOauth.refreshToken"))
+			return
+		}
+		var expiresAt time.Time
+		if creds.ClaudeAiOauth.ExpiresAt > 0 {
+			expiresAt = time.UnixMilli(creds.ClaudeAiOauth.ExpiresAt)
+		} else {
+			expiresAt = time.Now().Add(1 * time.Hour)
+		}
+		encAccess, err := h.enc.Encrypt(creds.ClaudeAiOauth.AccessToken)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt access token"))
+			return
+		}
+		encRefresh, err := h.enc.Encrypt(creds.ClaudeAiOauth.RefreshToken)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt refresh token"))
+			return
+		}
+		account = database.ClaudeAccount{
+			Name:         req.Name,
+			AccountType:  "oauth",
+			AccessToken:  encAccess,
+			RefreshToken: encRefresh,
+			ExpiresAt:    expiresAt,
+			Status:       "active",
+		}
 	}
 
 	if err := h.db.Create(&account).Error; err != nil {
@@ -113,11 +133,12 @@ func (h *AccountsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create join table entries
-	for _, pid := range poolIDs {
+	for _, pid := range req.PoolIDs {
 		h.db.Create(&database.AccountPool{AccountID: account.ID, PoolID: pid})
 	}
 
 	h.db.Preload("Pools").First(&account, account.ID)
+	logAudit(h.db, r, "create_account", "account:"+req.Name, "")
 	writeJSON(w, http.StatusCreated, account)
 }
 
@@ -145,8 +166,7 @@ func (h *AccountsHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Name    string  `json:"name"`
-		PoolID  *uint   `json:"pool_id"`  // legacy
-		PoolIDs *[]uint `json:"pool_ids"` // multi-pool
+		PoolIDs *[]uint `json:"pool_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
@@ -166,15 +186,10 @@ func (h *AccountsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sync pool assignments if provided
-	poolIDs := req.PoolIDs
-	if poolIDs == nil && req.PoolID != nil {
-		ids := []uint{*req.PoolID}
-		poolIDs = &ids
-	}
-	if poolIDs != nil {
+	if req.PoolIDs != nil {
 		// Delete existing links and re-create
 		h.db.Where("account_id = ?", id).Delete(&database.AccountPool{})
-		for _, pid := range *poolIDs {
+		for _, pid := range *req.PoolIDs {
 			if pid != 0 {
 				h.db.Create(&database.AccountPool{AccountID: uint(id), PoolID: pid})
 			}
@@ -193,10 +208,17 @@ func (h *AccountsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var account database.ClaudeAccount
+	if err := h.db.First(&account, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("account not found"))
+		return
+	}
+	h.db.Where("account_id = ?", id).Delete(&database.AccountPool{})
 	if err := h.db.Delete(&database.ClaudeAccount{}, id).Error; err != nil {
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to delete account"))
 		return
 	}
+	logAudit(h.db, r, "delete_account", "account:"+account.Name, "")
 	writeJSON(w, http.StatusOK, map[string]string{"message": "account deleted"})
 }
 
@@ -210,6 +232,11 @@ func (h *AccountsHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var account database.ClaudeAccount
 	if err := h.db.First(&account, id).Error; err != nil {
 		writeJSON(w, http.StatusNotFound, errResp("account not found"))
+		return
+	}
+
+	if account.AccountType == "apikey" {
+		writeJSON(w, http.StatusBadRequest, errResp("API key accounts don't need token refresh"))
 		return
 	}
 
@@ -232,6 +259,7 @@ func (h *AccountsHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logAudit(h.db, r, "refresh_account", "account:"+account.Name, "")
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message":    "token refreshed",
 		"expires_at": account.ExpiresAt,
@@ -250,6 +278,7 @@ func (h *AccountsHandler) Reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logAudit(h.db, r, "reset_account", fmt.Sprintf("account:%d", id), "")
 	writeJSON(w, http.StatusOK, map[string]string{"message": "account reset to active"})
 }
 
@@ -265,6 +294,7 @@ func (h *AccountsHandler) Stats(w http.ResponseWriter, r *http.Request) {
 		Requests     int64   `json:"requests"`
 		InputTokens  int64   `json:"input_tokens"`
 		OutputTokens int64   `json:"output_tokens"`
+		EstCostUSD   float64 `json:"est_cost_usd"`
 	}
 
 	queryStats := func(since time.Time) periodStats {
@@ -273,7 +303,24 @@ func (h *AccountsHandler) Stats(w http.ResponseWriter, r *http.Request) {
 			Where("account_id = ? AND created_at >= ?", id, since).
 			Select("COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0)").
 			Row().Scan(&reqs, &inp, &out)
-		return periodStats{Requests: reqs, InputTokens: inp, OutputTokens: out}
+
+		// Compute cost by model breakdown
+		type modelRow struct {
+			Model        string
+			InputTokens  int64
+			OutputTokens int64
+		}
+		var models []modelRow
+		h.db.Model(&database.UsageLog{}).
+			Where("account_id = ? AND created_at >= ?", id, since).
+			Select("model, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens").
+			Group("model").Scan(&models)
+		var cost float64
+		for _, m := range models {
+			cost += EstimateCost(m.Model, m.InputTokens, m.OutputTokens)
+		}
+
+		return periodStats{Requests: reqs, InputTokens: inp, OutputTokens: out, EstCostUSD: cost}
 	}
 
 	now := time.Now().UTC()
@@ -380,6 +427,7 @@ func (h *AccountsHandler) Unlink(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to unlink account"))
 		return
 	}
+	logAudit(h.db, r, "unlink_account", fmt.Sprintf("account:%d", id), "pool_id="+poolIDStr)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -394,6 +442,11 @@ func (h *AccountsHandler) Quota(w http.ResponseWriter, r *http.Request) {
 	var account database.ClaudeAccount
 	if err := h.db.First(&account, id).Error; err != nil {
 		writeJSON(w, http.StatusNotFound, errResp("account not found"))
+		return
+	}
+
+	if account.AccountType == "apikey" {
+		writeJSON(w, http.StatusBadRequest, errResp("quota check only available for OAuth accounts"))
 		return
 	}
 
@@ -424,4 +477,28 @@ func (h *AccountsHandler) Quota(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+}
+
+// POST /api/admin/accounts/{id}/toggle — toggle active/disabled status
+func (h *AccountsHandler) ToggleStatus(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
+		return
+	}
+
+	var account database.ClaudeAccount
+	if err := h.db.First(&account, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("account not found"))
+		return
+	}
+
+	newStatus := "active"
+	if account.Status == "active" {
+		newStatus = "disabled"
+	}
+
+	h.db.Model(&account).Update("status", newStatus)
+	logAudit(h.db, r, "toggle_account", fmt.Sprintf("account:%s", account.Name), fmt.Sprintf("status=%s", newStatus))
+	writeJSON(w, http.StatusOK, map[string]string{"status": newStatus})
 }

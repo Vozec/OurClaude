@@ -26,6 +26,7 @@ type Config struct {
 	PromptCacheInject    bool          // inject cache_control on long system prompts (default: true)
 	HealthCheckInterval  time.Duration // how often to test Claude accounts (0 = disabled)
 	ClaudeAIURL          string        // Claude.ai API base (default: https://api.claude.ai)
+	CORSOrigins          string        // comma-separated allowed origins (* = all)
 }
 
 func Load() *Config {
@@ -71,7 +72,8 @@ func Load() *Config {
 		RedisURL: getEnv("REDIS_URL", ""),
 		DistDir:           getEnv("DIST_DIR", "/usr/local/share/cl"),
 		PromptCacheInject: getEnv("PROMPT_CACHE_INJECT", "true") != "false",
-		ClaudeAIURL: getEnv("CLAUDE_AI_URL", "https://api.claude.ai"),
+		ClaudeAIURL:   getEnv("CLAUDE_AI_URL", "https://api.claude.ai"),
+		CORSOrigins:   getEnv("CORS_ORIGINS", "*"),
 		HealthCheckInterval: func() time.Duration {
 			if v := os.Getenv("HEALTH_CHECK_INTERVAL_MINUTES"); v != "" {
 				if m, err := strconv.Atoi(v); err == nil && m > 0 {

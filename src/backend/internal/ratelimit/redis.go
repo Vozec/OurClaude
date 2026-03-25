@@ -47,7 +47,8 @@ func (l *redisLimiter) Allow(userID uint) bool {
 	pipe.Expire(ctx, key, 2*time.Minute)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		// Fail open: if Redis is down, allow the request
+		// Fail open: if Redis is down, allow the request but log warning
+		log.Printf("ratelimit: redis error, allowing request: %v", err)
 		return true
 	}
 

@@ -76,6 +76,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(h.cfg.JWTExpiry.Seconds()),
 	})
 
+	// Audit log — login happens before JWT context exists, so log manually
+	h.db.Create(&database.AuditLog{
+		AdminID:       admin.ID,
+		AdminUsername: admin.Username,
+		Action:        "admin_login",
+		Target:        "admin:" + admin.Username,
+		Details:       "ip=" + r.RemoteAddr,
+	})
+
 	// Record session in DB for the Sessions page
 	h.db.Create(&database.AdminSession{
 		AdminID:    admin.ID,

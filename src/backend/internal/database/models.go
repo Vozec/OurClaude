@@ -24,12 +24,12 @@ type Pool struct {
 
 type ClaudeAccount struct {
 	ID           uint       `gorm:"primarykey" json:"id"`
-	PoolID       *uint      `gorm:"index" json:"pool_id"`                                                                                           // legacy, kept for migration
 	Pools        []*Pool    `gorm:"many2many:account_pools;joinForeignKey:AccountID;joinReferences:PoolID" json:"pools,omitempty"`
 	Name         string     `gorm:"not null" json:"name"`
 	AccessToken  string     `gorm:"not null" json:"-"`
 	RefreshToken string     `gorm:"not null" json:"-"`
 	ExpiresAt    time.Time  `json:"expires_at"`
+	AccountType  string     `gorm:"default:'oauth'" json:"account_type"` // "oauth" or "apikey"
 	Status       string     `gorm:"default:'active'" json:"status"`
 	LastError    string     `json:"last_error,omitempty"`
 	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
@@ -41,8 +41,6 @@ type User struct {
 	ID                uint       `gorm:"primarykey" json:"id"`
 	Name              string     `gorm:"not null" json:"name"`
 	APIToken          string     `gorm:"uniqueIndex;not null" json:"api_token"`
-	PoolID            *uint      `json:"pool_id"`
-	Pool              *Pool      `gorm:"foreignKey:PoolID" json:"pool,omitempty"`
 	Pools             []*Pool    `gorm:"many2many:user_pools;joinForeignKey:UserID;joinReferences:PoolID" json:"pools,omitempty"`
 	Active            bool       `gorm:"default:true" json:"active"`
 	TokenExpiresAt    *time.Time `json:"token_expires_at,omitempty"`
@@ -94,8 +92,6 @@ type AuditLog struct {
 type InviteToken struct {
 	ID        uint       `gorm:"primarykey" json:"id"`
 	Token     string     `gorm:"uniqueIndex;not null" json:"token"`
-	PoolID    *uint      `json:"pool_id"`
-	Pool      *Pool      `gorm:"foreignKey:PoolID" json:"pool,omitempty"`
 	Pools     []*Pool    `gorm:"many2many:invite_pools;joinForeignKey:InviteID;joinReferences:PoolID" json:"pools,omitempty"`
 	Label     string     `json:"label"`
 	ExpiresAt time.Time  `json:"expires_at"`

@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { statsApi } from '../lib/api'
-import { MessageSquare, Zap, Users, Server, ArrowRight } from 'lucide-react'
+import { MessageSquare, Zap, Users, Server, ArrowRight, AlertTriangle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 function StatCard({ label, value, sub, icon: Icon, color }: {
@@ -48,6 +49,28 @@ export default function Dashboard() {
     refetchInterval: 30_000,
   })
 
+  const qc = useQueryClient()
+  useEffect(() => {
+    const es = new EventSource('/api/admin/stats/stream')
+    es.onmessage = (e) => {
+      try {
+        const evt = JSON.parse(e.data)
+        if (evt.type === 'usage') {
+          qc.setQueryData(['stats', 'overview'], (old: any) => {
+            if (!old) return old
+            return {
+              ...old,
+              total_requests: (old.total_requests || 0) + 1,
+              total_input: (old.total_input || 0) + (evt.input_tokens || 0),
+              total_output: (old.total_output || 0) + (evt.output_tokens || 0),
+            }
+          })
+        }
+      } catch {}
+    }
+    return () => es.close()
+  }, [qc])
+
   if (isLoading || !data) {
     return <div className="animate-pulse space-y-4">
       {[...Array(4)].map((_, i) => (
@@ -65,6 +88,23 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1">Overview of your Claude proxy.</p>
       </div>
+
+      {/* Quota alert banner */}
+      {(() => {
+        const statuses = data.account_statuses ?? []
+        const exhausted = statuses.find(s => s.status === 'exhausted')?.count ?? 0
+        const errored = statuses.find(s => s.status === 'error')?.count ?? 0
+        return (exhausted > 0 || errored > 0) ? (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              {exhausted > 0 && `${exhausted} account(s) exhausted`}
+              {exhausted > 0 && errored > 0 && ' \u00b7 '}
+              {errored > 0 && `${errored} account(s) in error`}
+            </p>
+          </div>
+        ) : null
+      })()}
 
       {/* Getting started */}
       {isNewInstall && (

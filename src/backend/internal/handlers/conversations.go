@@ -117,10 +117,56 @@ func (h *ConversationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/admin/conversations/{id}/export — export a single conversation as downloadable JSON
+func (h *ConversationsHandler) ExportOne(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
+		return
+	}
+
+	var log database.ConversationLog
+	if err := h.db.Preload("User").First(&log, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("conversation not found"))
+		return
+	}
+
+	var messages interface{}
+	if log.MessagesJSON != "" {
+		json.Unmarshal([]byte(log.MessagesJSON), &messages)
+	}
+
+	userName := ""
+	if log.User != nil {
+		userName = log.User.Name
+	}
+
+	entry := map[string]interface{}{
+		"id":            log.ID,
+		"user_id":       log.UserID,
+		"user_name":     userName,
+		"model":         log.Model,
+		"messages":      messages,
+		"response":      log.ResponseText,
+		"input_tokens":  log.InputTokens,
+		"output_tokens": log.OutputTokens,
+		"created_at":    log.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", `attachment; filename="conversation-`+strconv.Itoa(int(id))+`.json"`)
+	json.NewEncoder(w).Encode(entry)
+}
+
 // GET /api/admin/conversations/export
 func (h *ConversationsHandler) Export(w http.ResponseWriter, r *http.Request) {
+	q := h.db.Model(&database.ConversationLog{}).Preload("User")
+	if uid := r.URL.Query().Get("user_id"); uid != "" {
+		q = q.Where("user_id = ?", uid)
+	}
+
 	var logs []database.ConversationLog
-	h.db.Preload("User").Order("created_at DESC").Find(&logs)
+	q.Order("created_at DESC").Find(&logs)
 
 	type exportEntry struct {
 		ID           uint        `json:"id"`

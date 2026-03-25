@@ -200,7 +200,7 @@ export default function Invites() {
                             </span>
                           ))}
                         </div>
-                      ) : invite.pool?.name ?? '—'}
+                      ) : '—'}
                     </td>
                     <td className="px-6 py-4 max-w-xs">
                       {!invite.used_at && !expired

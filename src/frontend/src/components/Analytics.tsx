@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { statsApi, DayStat, ModelDayStat } from '../lib/api'
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -53,6 +53,20 @@ function buildModelDayData(rows: ModelDayStat[], topModels: string[]) {
 
 export default function Analytics() {
   const [tab, setTab] = useState<Tab>('tokens')
+  const qc = useQueryClient()
+
+  useEffect(() => {
+    const es = new EventSource('/api/admin/stats/stream')
+    let timeout: ReturnType<typeof setTimeout>
+    es.onmessage = () => {
+      clearTimeout(timeout)
+      timeout = setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ['stats'] })
+      }, 5000)
+    }
+    return () => { es.close(); clearTimeout(timeout) }
+  }, [qc])
+
   const { data: overview }     = useQuery({ queryKey: ['stats', 'overview'],      queryFn: statsApi.overview })
   const { data: byDay }        = useQuery({ queryKey: ['stats', 'by-day'],        queryFn: statsApi.byDay })
   const { data: byUser }       = useQuery({ queryKey: ['stats', 'by-user'],       queryFn: statsApi.byUser })

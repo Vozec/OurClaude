@@ -24,7 +24,7 @@ func NewUsersHandler(db *gorm.DB) *UsersHandler {
 
 func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	var users []database.User
-	if err := h.db.Preload("Pool").Preload("Pools").Find(&users).Error; err != nil {
+	if err := h.db.Preload("Pools").Find(&users).Error; err != nil {
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to fetch users"))
 		return
 	}
@@ -34,7 +34,6 @@ func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name              string     `json:"name"`
-		PoolID            *uint      `json:"pool_id"`
 		PoolIDs           []uint     `json:"pool_ids"`
 		TokenExpiresAt    *time.Time `json:"token_expires_at"`
 		DailyTokenQuota   int        `json:"daily_token_quota"`
@@ -53,18 +52,11 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Derive primary pool_id from pool_ids if not explicitly set
-	poolID := req.PoolID
-	if poolID == nil && len(req.PoolIDs) > 0 {
-		poolID = &req.PoolIDs[0]
-	}
-
 	token := "sk-proxy-" + strings.ReplaceAll(uuid.New().String(), "-", "")
 
 	user := database.User{
 		Name:              req.Name,
 		APIToken:          token,
-		PoolID:            poolID,
 		Active:            true,
 		TokenExpiresAt:    req.TokenExpiresAt,
 		DailyTokenQuota:   req.DailyTokenQuota,
@@ -81,13 +73,9 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sync user_pools join table
-	poolIDs := req.PoolIDs
-	if len(poolIDs) == 0 && poolID != nil {
-		poolIDs = []uint{*poolID}
-	}
-	syncUserPools(h.db, user.ID, poolIDs)
+	syncUserPools(h.db, user.ID, req.PoolIDs)
 
-	h.db.Preload("Pool").Preload("Pools").First(&user, user.ID)
+	h.db.Preload("Pools").First(&user, user.ID)
 	logAudit(h.db, r, "create_user", "user:"+req.Name, "")
 	writeJSON(w, http.StatusCreated, user)
 }
@@ -100,7 +88,7 @@ func (h *UsersHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var user database.User
-	if err := h.db.Preload("Pool").Preload("Pools").First(&user, id).Error; err != nil {
+	if err := h.db.Preload("Pools").First(&user, id).Error; err != nil {
 		writeJSON(w, http.StatusNotFound, errResp("user not found"))
 		return
 	}
@@ -116,7 +104,6 @@ func (h *UsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Name              string   `json:"name"`
-		PoolID            *uint    `json:"pool_id"`
 		PoolIDs           *[]uint  `json:"pool_ids"`
 		Active            *bool    `json:"active"`
 		TokenExpiresAt    *string  `json:"token_expires_at"` // ISO string or null
@@ -141,9 +128,6 @@ func (h *UsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	updates := map[string]interface{}{}
 	if req.Name != "" {
 		updates["name"] = req.Name
-	}
-	if req.PoolID != nil {
-		updates["pool_id"] = req.PoolID
 	}
 	if req.Active != nil {
 		updates["active"] = *req.Active
@@ -186,17 +170,10 @@ func (h *UsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	// Sync user_pools if pool_ids was provided
 	if req.PoolIDs != nil {
-		poolIDs := *req.PoolIDs
-		syncUserPools(h.db, id, poolIDs)
-		// Keep legacy pool_id in sync with first pool
-		if len(poolIDs) > 0 {
-			h.db.Model(&database.User{}).Where("id = ?", id).Update("pool_id", poolIDs[0])
-		} else {
-			h.db.Model(&database.User{}).Where("id = ?", id).Update("pool_id", nil)
-		}
+		syncUserPools(h.db, id, *req.PoolIDs)
 	}
 
-	h.db.Preload("Pool").Preload("Pools").First(&user, id)
+	h.db.Preload("Pools").First(&user, id)
 	logAudit(h.db, r, "update_user", "user:"+user.Name, "")
 	writeJSON(w, http.StatusOK, user)
 }

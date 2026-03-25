@@ -154,8 +154,8 @@ func (m *Manager) GetAccountForUser(poolIDs []uint) (*database.ClaudeAccount, er
 	return m.GetAccountForPool(bestPoolID)
 }
 
-// GetAccountForPool returns the next active account for the given pool,
-// using round-robin selection and skipping exhausted/error accounts.
+// GetAccountForPool returns the next active account for the given pool.
+// Priority: active OAuth → active API keys (fallback) → exhausted OAuth (last resort).
 func (m *Manager) GetAccountForPool(poolID uint) (*database.ClaudeAccount, error) {
 	var accounts []database.ClaudeAccount
 	if err := m.db.Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
@@ -164,28 +164,44 @@ func (m *Manager) GetAccountForPool(poolID uint) (*database.ClaudeAccount, error
 		return nil, err
 	}
 
-	active := filterByStatus(accounts, "active")
-	if len(active) == 0 {
-		exhausted := filterByStatus(accounts, "exhausted")
-		if len(exhausted) == 0 {
-			return nil, ErrNoActiveAccounts
-		}
-		active = exhausted
+	// 1. Try active OAuth accounts first
+	oauthActive := filterByTypeAndStatus(accounts, "oauth", "active")
+	if len(oauthActive) > 0 {
+		return m.pickAndValidate(poolID, oauthActive)
 	}
 
+	// 2. Fallback: try enabled API keys
+	apikeys := filterByTypeAndStatus(accounts, "apikey", "active")
+	if len(apikeys) > 0 {
+		return m.pickAndValidate(poolID, apikeys)
+	}
+
+	// 3. Last resort: exhausted OAuth accounts
+	oauthExhausted := filterByTypeAndStatus(accounts, "oauth", "exhausted")
+	if len(oauthExhausted) > 0 {
+		return m.pickAndValidate(poolID, oauthExhausted)
+	}
+
+	return nil, ErrNoActiveAccounts
+}
+
+func (m *Manager) pickAndValidate(poolID uint, candidates []database.ClaudeAccount) (*database.ClaudeAccount, error) {
 	m.mu.Lock()
-	idx := m.roundRobin[poolID] % len(active)
-	m.roundRobin[poolID] = (idx + 1) % len(active)
-	account := active[idx]
+	idx := m.roundRobin[poolID] % len(candidates)
+	m.roundRobin[poolID] = (idx + 1) % len(candidates)
+	account := candidates[idx]
 	m.mu.Unlock()
 
 	if err := m.decryptAccount(&account); err != nil {
 		return nil, err
 	}
 
-	if err := m.oauth.EnsureValid(m.db, &account); err != nil {
-		m.MarkError(account.ID, err.Error())
-		return nil, err
+	// Skip token refresh for API keys
+	if account.AccountType != "apikey" {
+		if err := m.oauth.EnsureValid(m.db, &account); err != nil {
+			m.MarkError(account.ID, err.Error())
+			return nil, err
+		}
 	}
 
 	return &account, nil
@@ -262,6 +278,20 @@ func filterByStatus(accounts []database.ClaudeAccount, status string) []database
 	var result []database.ClaudeAccount
 	for _, a := range accounts {
 		if a.Status == status {
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
+func filterByTypeAndStatus(accounts []database.ClaudeAccount, accountType, status string) []database.ClaudeAccount {
+	var result []database.ClaudeAccount
+	for _, a := range accounts {
+		t := a.AccountType
+		if t == "" {
+			t = "oauth"
+		}
+		if t == accountType && a.Status == status {
 			result = append(result, a)
 		}
 	}

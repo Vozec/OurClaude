@@ -176,6 +176,23 @@ export default function Pools() {
                     <span className="text-sm text-gray-400 dark:text-gray-500">No accounts in this pool</span>
                   )}
                 </div>
+
+                {accounts.length > 0 && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <span>{active}/{accounts.length} active</span>
+                      <span className={active === 0 ? 'text-red-500' : active < accounts.length ? 'text-amber-500' : 'text-green-500'}>
+                        {Math.round(active / accounts.length * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full ${active === 0 ? 'bg-red-500' : active < accounts.length ? 'bg-amber-500' : 'bg-green-500'}`}
+                        style={{ width: `${(active / accounts.length) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}

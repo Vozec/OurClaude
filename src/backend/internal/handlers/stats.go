@@ -26,7 +26,7 @@ var modelPricing = map[string][2]float64{
 	"claude-3-haiku":         {0.25, 1.25},
 }
 
-func estimateCost(model string, inputTokens, outputTokens int64) float64 {
+func EstimateCost(model string, inputTokens, outputTokens int64) float64 {
 	for substr, price := range modelPricing {
 		if len(model) >= len(substr) {
 			for i := 0; i <= len(model)-len(substr); i++ {
@@ -100,7 +100,7 @@ func estimateCostFromDB(db *gorm.DB) float64 {
 
 	var total float64
 	for _, r := range rows {
-		total += estimateCost(r.Model, r.InputTokens, r.OutputTokens)
+		total += EstimateCost(r.Model, r.InputTokens, r.OutputTokens)
 	}
 	return total
 }
@@ -198,7 +198,7 @@ func (h *StatsHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 		if l.User != nil {
 			userName = l.User.Name
 		}
-		cost := fmt.Sprintf("%.6f", estimateCost(l.Model, int64(l.InputTokens), int64(l.OutputTokens)))
+		cost := fmt.Sprintf("%.6f", EstimateCost(l.Model, int64(l.InputTokens), int64(l.OutputTokens)))
 		cw.Write([]string{
 			strconv.Itoa(int(l.ID)),
 			l.CreatedAt.UTC().Format(time.RFC3339),
@@ -260,7 +260,7 @@ func estimateCostForUser(db *gorm.DB, userID uint) float64 {
 
 	var total float64
 	for _, r := range rows {
-		total += estimateCost(r.Model, r.InputTokens, r.OutputTokens)
+		total += EstimateCost(r.Model, r.InputTokens, r.OutputTokens)
 	}
 	return total
 }
@@ -349,7 +349,7 @@ func (h *StatsHandler) ByModel(w http.ResponseWriter, r *http.Request) {
 		Scan(&rows)
 
 	for i := range rows {
-		rows[i].EstimatedCost = estimateCost(rows[i].Model, rows[i].InputTokens, rows[i].OutputTokens)
+		rows[i].EstimatedCost = EstimateCost(rows[i].Model, rows[i].InputTokens, rows[i].OutputTokens)
 	}
 
 	writeJSON(w, http.StatusOK, rows)

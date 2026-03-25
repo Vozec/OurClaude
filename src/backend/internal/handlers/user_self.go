@@ -43,7 +43,7 @@ func (h *UserSelfHandler) extractUser(r *http.Request) (*database.User, error) {
 	}
 
 	var user database.User
-	if err := h.db.Preload("Pool").Where("api_token = ? AND active = ?", token, true).First(&user).Error; err != nil {
+	if err := h.db.Preload("Pools").Where("api_token = ? AND active = ?", token, true).First(&user).Error; err != nil {
 		return nil, errInvalidToken
 	}
 	return &user, nil
@@ -74,7 +74,7 @@ func (h *UserSelfHandler) Me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":         user.ID,
 		"name":       user.Name,
-		"pool":       user.Pool,
+		"pools":      user.Pools,
 		"active":     user.Active,
 		"created_at": user.CreatedAt,
 		"quota": map[string]interface{}{
@@ -239,8 +239,6 @@ func (h *UserSelfHandler) ImportAccount(w http.ResponseWriter, r *http.Request) 
 	var poolEntry database.UserPool
 	if err := h.db.Where("user_id = ?", user.ID).First(&poolEntry).Error; err == nil {
 		poolID = poolEntry.PoolID
-	} else if user.PoolID != nil {
-		poolID = *user.PoolID
 	} else {
 		// No pool assigned to this user — use the first available pool
 		var anyPool database.Pool
@@ -316,12 +314,8 @@ func (h *UserSelfHandler) PoolStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve pool IDs from join table, fallback to legacy pool_id
 	var poolIDs []uint
 	h.db.Table("user_pools").Where("user_id = ?", user.ID).Pluck("pool_id", &poolIDs)
-	if len(poolIDs) == 0 && user.PoolID != nil {
-		poolIDs = []uint{*user.PoolID}
-	}
 
 	type accountCounts struct {
 		Active    int64 `json:"active"`

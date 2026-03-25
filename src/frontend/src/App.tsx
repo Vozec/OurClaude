@@ -1,3 +1,4 @@
+import React, { Component, ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { authApi } from './lib/api'
@@ -20,6 +21,28 @@ import Sessions from './components/Sessions'
 import InviteUse from './components/InviteUse'
 import PoolDetail from './components/PoolDetail'
 import SetupLink from './components/SetupLink'
+
+class ErrorBoundary extends Component<{children: ReactNode}, {error: Error | null}> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+          <div className="text-center p-8">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Something went wrong</h1>
+            <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm">{this.state.error.message}</p>
+            <button onClick={() => { this.setState({ error: null }); window.location.reload() }}
+              className="px-4 py-2 bg-brand-500 text-white rounded-lg text-sm hover:bg-brand-600">
+              Reload page
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 function App() {
   return (
@@ -55,25 +78,27 @@ function PrivateRoutes() {
   }
 
   return (
-    <Layout admin={data}>
-      <Routes>
-        <Route path="/"          element={<Dashboard />} />
-        <Route path="/users"     element={<Users />} />
-        <Route path="/pools"     element={<Pools />} />
-        <Route path="/pools/:id" element={<PoolDetail />} />
-        <Route path="/accounts"  element={<Accounts />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/logs"      element={<Logs />} />
-        <Route path="/settings"  element={<Settings />} />
-        <Route path="/admins"    element={<Admins />} />
-        <Route path="/webhooks"  element={<Webhooks />} />
-        <Route path="/audit"     element={<AuditLog />} />
-        <Route path="/invites"   element={<Invites />} />
-        <Route path="/downloads" element={<Downloads />} />
-        <Route path="/aliases"  element={<ModelAliases />} />
-        <Route path="/sessions" element={<Sessions />} />
-      </Routes>
-    </Layout>
+    <ErrorBoundary>
+      <Layout admin={data}>
+        <Routes>
+          <Route path="/"          element={<Dashboard />} />
+          <Route path="/users"     element={<Users />} />
+          <Route path="/pools"     element={<Pools />} />
+          <Route path="/pools/:id" element={<PoolDetail />} />
+          <Route path="/accounts"  element={<Accounts />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/logs"      element={<Logs />} />
+          <Route path="/settings"  element={<Settings />} />
+          <Route path="/admins"    element={<Admins />} />
+          <Route path="/webhooks"  element={<Webhooks />} />
+          <Route path="/audit"     element={<AuditLog />} />
+          <Route path="/invites"   element={<Invites />} />
+          <Route path="/downloads" element={<Downloads />} />
+          <Route path="/aliases"  element={<ModelAliases />} />
+          <Route path="/sessions" element={<Sessions />} />
+        </Routes>
+      </Layout>
+    </ErrorBoundary>
   )
 }
 

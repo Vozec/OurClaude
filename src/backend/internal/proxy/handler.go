@@ -76,7 +76,9 @@ func (c *aliasCache) get(db *gorm.DB, model string) string {
 		return model
 	}
 	var aliases []database.ModelAlias
-	db.Find(&aliases)
+	if err := db.Find(&aliases).Error; err != nil {
+		log.Printf("proxy: failed to refresh alias cache: %v", err)
+	}
 	c.data = make(map[string]string, len(aliases))
 	for _, a := range aliases {
 		c.data[a.Alias] = a.Target
@@ -97,11 +99,12 @@ type Handler struct {
 	cacheInject bool
 	webhooks    WebhookDispatcher
 	logStream   *sse.Broadcaster
+	statsStream *sse.Broadcaster
 	quotaAlerts quotaAlertState
 	aliases     aliasCache
 }
 
-func New(db *gorm.DB, poolMgr *pool.Manager, upstream string, rpm int, redisURL string, cacheInject bool, wh WebhookDispatcher, logStream *sse.Broadcaster) *Handler {
+func New(db *gorm.DB, poolMgr *pool.Manager, upstream string, rpm int, redisURL string, cacheInject bool, wh WebhookDispatcher, logStream *sse.Broadcaster, statsStream *sse.Broadcaster) *Handler {
 	return &Handler{
 		db:          db,
 		pool:        poolMgr,
@@ -110,6 +113,7 @@ func New(db *gorm.DB, poolMgr *pool.Manager, upstream string, rpm int, redisURL 
 		cacheInject: cacheInject,
 		webhooks:    wh,
 		logStream:   logStream,
+		statsStream: statsStream,
 		quotaAlerts: quotaAlertState{lastSent: make(map[uint]time.Time)},
 		aliases:     aliasCache{data: make(map[string]string)},
 		client: &http.Client{
@@ -198,10 +202,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Load all pool IDs for this user from user_pools join table
 	var poolIDs []uint
-	h.db.Table("user_pools").Where("user_id = ?", user.ID).Pluck("pool_id", &poolIDs)
-	// Fallback: legacy pool_id column
-	if len(poolIDs) == 0 && user.PoolID != nil {
-		poolIDs = []uint{*user.PoolID}
+	if err := h.db.Table("user_pools").Where("user_id = ?", user.ID).Pluck("pool_id", &poolIDs).Error; err != nil {
+		log.Printf("proxy: failed to load user pool IDs: %v", err)
 	}
 
 	if len(poolIDs) == 0 {
@@ -263,7 +265,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var reqParsed struct {
 		Messages json.RawMessage `json:"messages"`
 	}
-	json.Unmarshal(body, &reqParsed)
+	if err := json.Unmarshal(body, &reqParsed); err != nil {
+		log.Printf("proxy: failed to parse request body for conversation logging: %v", err)
+	}
 	messagesJSON := string(reqParsed.Messages)
 
 	// Model alias rewriting
@@ -308,7 +312,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		h.streamResponse(w, resp, user.ID, account.ID, r.URL.Path, start, messagesJSON, h.logStream)
+		h.streamResponse(w, resp, user.ID, account.ID, r.URL.Path, start, messagesJSON, h.logStream, h.statsStream)
 		h.pool.UpdateLastUsed(account.ID)
 		return
 	}
@@ -343,7 +347,10 @@ func (h *Handler) authenticate(r *http.Request) (*database.User, error) {
 }
 
 func (h *Handler) forward(r *http.Request, body []byte, accessToken string, user *database.User) (*http.Response, error) {
-	upstreamURL := h.upstream + r.URL.RequestURI()
+	upstreamURL := h.upstream + r.URL.Path
+	if r.URL.RawQuery != "" {
+		upstreamURL += "?" + r.URL.RawQuery
+	}
 
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(body))
 	if err != nil {
@@ -400,7 +407,7 @@ func (h *Handler) forward(r *http.Request, body []byte, accessToken string, user
 	return h.client.Do(req)
 }
 
-func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, userID, accountID uint, endpoint string, start time.Time, messagesJSON string, logStream *sse.Broadcaster) {
+func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, userID, accountID uint, endpoint string, start time.Time, messagesJSON string, logStream *sse.Broadcaster, statsStream *sse.Broadcaster) {
 	defer resp.Body.Close()
 
 	for key, values := range resp.Header {
@@ -438,7 +445,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, use
 
 	latencyMs := int(time.Since(start).Milliseconds())
 	captured := buf.Bytes()
-	go parseAndLogUsage(captured, isStreaming, userID, accountID, endpoint, resp.StatusCode, latencyMs, ttftMs, messagesJSON, h.db, logStream)
+	go parseAndLogUsage(captured, isStreaming, userID, accountID, endpoint, resp.StatusCode, latencyMs, ttftMs, messagesJSON, h.db, logStream, statsStream)
 }
 
 func (h *Handler) maybeAlertQuota(user *database.User, period string, used, quota int) {
@@ -461,7 +468,7 @@ func (h *Handler) maybeAlertQuota(user *database.User, period string, used, quot
 	})
 }
 
-func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, endpoint string, statusCode, latencyMs, ttftMs int, messagesJSON string, db *gorm.DB, logStream *sse.Broadcaster) {
+func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, endpoint string, statusCode, latencyMs, ttftMs int, messagesJSON string, db *gorm.DB, logStream *sse.Broadcaster, statsStream *sse.Broadcaster) {
 	var inputTokens, outputTokens, cacheRead, cacheWrite int
 	var model string
 	var responseText strings.Builder
@@ -585,6 +592,16 @@ func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, end
 		if raw, err := json.Marshal(entry); err == nil {
 			logStream.Publish(raw)
 		}
+	}
+
+	if statsStream != nil {
+		evt, _ := json.Marshal(map[string]interface{}{
+			"type":          "usage",
+			"input_tokens":  inputTokens,
+			"output_tokens": outputTokens,
+			"model":         model,
+		})
+		statsStream.Publish(evt)
 	}
 
 	// Save conversation log if we have message content

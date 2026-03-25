@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { poolsApi, accountsApi, Pool, Account, User } from '../lib/api'
@@ -53,7 +54,28 @@ function AccountStatusBadge({ status }: { status: string }) {
   return <span className="flex items-center gap-1 text-red-600 dark:text-red-400 text-xs"><AlertTriangle className="w-3.5 h-3.5" />Error</span>
 }
 
+function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, danger }: {
+  title: string; message: string; confirmLabel?: string
+  onConfirm: () => void; onCancel: () => void; danger?: boolean
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+        <h3 className="text-lg font-semibold dark:text-white mb-2">{title}</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300">Cancel</button>
+          <button onClick={onConfirm} className={`flex-1 px-4 py-2 text-white rounded-lg text-sm ${danger ? 'bg-red-500 hover:bg-red-600' : 'bg-brand-500 hover:bg-brand-600'}`}>
+            {confirmLabel ?? 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AccountRow({ account, poolId }: { account: Account; poolId: number }) {
+  const [showConfirm, setShowConfirm] = useState(false)
   const qc = useQueryClient()
   const { data: stats } = useQuery({
     queryKey: ['account-stats', account.id],
@@ -69,36 +91,45 @@ function AccountRow({ account, poolId }: { account: Account; poolId: number }) {
   })
 
   return (
-    <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750">
-      <td className="px-5 py-3">
-        <p className="text-sm font-medium text-gray-900 dark:text-white">{account.name}</p>
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          Expires {new Date(account.expires_at).toLocaleDateString()}
-        </p>
-      </td>
-      <td className="px-5 py-3"><AccountStatusBadge status={account.status} /></td>
-      <td className="px-5 py-3 text-sm text-gray-600 dark:text-gray-400">
-        {stats ? fmtTokens(stats.today.input_tokens + stats.today.output_tokens) : '—'}
-      </td>
-      <td className="px-5 py-3 text-sm text-gray-600 dark:text-gray-400">
-        {stats ? fmtTokens(stats.week.input_tokens + stats.week.output_tokens) : '—'}
-      </td>
-      <td className="px-5 py-3 text-xs text-gray-400 dark:text-gray-500">
-        {account.last_used_at ? new Date(account.last_used_at).toLocaleString() : '—'}
-      </td>
-      <td className="px-5 py-3 text-right">
-        <button
-          title="Unlink from pool"
-          onClick={() => {
-            if (confirm(`Unlink "${account.name}" from this pool?`)) unlinkMutation.mutate()
-          }}
-          disabled={unlinkMutation.isPending}
-          className="p-1.5 text-gray-400 hover:text-purple-500 rounded disabled:opacity-50"
-        >
-          <Link2Off className="w-4 h-4" />
-        </button>
-      </td>
-    </tr>
+    <>
+      <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750">
+        <td className="px-5 py-3">
+          <p className="text-sm font-medium text-gray-900 dark:text-white">{account.name}</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            Expires {new Date(account.expires_at).toLocaleDateString()}
+          </p>
+        </td>
+        <td className="px-5 py-3"><AccountStatusBadge status={account.status} /></td>
+        <td className="px-5 py-3 text-sm text-gray-600 dark:text-gray-400">
+          {stats ? fmtTokens(stats.today.input_tokens + stats.today.output_tokens) : '—'}
+        </td>
+        <td className="px-5 py-3 text-sm text-gray-600 dark:text-gray-400">
+          {stats ? fmtTokens(stats.week.input_tokens + stats.week.output_tokens) : '—'}
+        </td>
+        <td className="px-5 py-3 text-xs text-gray-400 dark:text-gray-500">
+          {account.last_used_at ? new Date(account.last_used_at).toLocaleString() : '—'}
+        </td>
+        <td className="px-5 py-3 text-right">
+          <button
+            title="Unlink from pool"
+            onClick={() => setShowConfirm(true)}
+            disabled={unlinkMutation.isPending}
+            className="p-1.5 text-gray-400 hover:text-purple-500 rounded disabled:opacity-50"
+          >
+            <Link2Off className="w-4 h-4" />
+          </button>
+        </td>
+      </tr>
+      {showConfirm && (
+        <ConfirmModal
+          title="Unlink account"
+          message={`Remove "${account.name}" from this pool?`}
+          confirmLabel="Unlink"
+          onConfirm={() => { unlinkMutation.mutate(); setShowConfirm(false) }}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
+    </>
   )
 }
 

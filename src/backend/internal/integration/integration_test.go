@@ -22,7 +22,6 @@ func setupServer(t *testing.T) (*httptest.Server, *config.Config) {
 
 	cfg := &config.Config{
 		WebPort:       "0",
-		ProxyPort:     "0",
 		JWTSecret:     "test-secret-1234567890",
 		JWTExpiry:     1 * time.Hour,
 		DBType:        "sqlite",

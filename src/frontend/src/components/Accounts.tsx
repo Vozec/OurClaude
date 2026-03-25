@@ -1,10 +1,31 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, poolsApi, usersApi, Account, Pool, User } from '../lib/api'
-import { Plus, Trash2, RefreshCw, RotateCcw, CheckCircle, AlertCircle, Clock, X, KeyRound, Pencil, Link2Off, BarChart2 } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, RotateCcw, CheckCircle, AlertCircle, Clock, X, KeyRound, Pencil, Link2Off, BarChart2, Power, Key } from 'lucide-react'
+
+function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, danger }: {
+  title: string; message: string; confirmLabel?: string
+  onConfirm: () => void; onCancel: () => void; danger?: boolean
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+        <h3 className="text-lg font-semibold dark:text-white mb-2">{title}</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300">Cancel</button>
+          <button onClick={onConfirm} className={`flex-1 px-4 py-2 text-white rounded-lg text-sm ${danger ? 'bg-red-500 hover:bg-red-600' : 'bg-brand-500 hover:bg-brand-600'}`}>
+            {confirmLabel ?? 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function StatusBadge({ status }: { status: Account['status'] }) {
   if (status === 'active')    return <span className="flex items-center gap-1 text-green-600 text-sm"><CheckCircle className="w-3.5 h-3.5" />Active</span>
+  if (status === 'disabled')  return <span className="flex items-center gap-1 text-gray-400 text-sm"><Clock className="w-3.5 h-3.5" />Disabled</span>
   if (status === 'exhausted') return <span className="flex items-center gap-1 text-yellow-600 text-sm"><Clock className="w-3.5 h-3.5" />Exhausted</span>
   return <span className="flex items-center gap-1 text-red-600 text-sm"><AlertCircle className="w-3.5 h-3.5" />Error</span>
 }
@@ -30,8 +51,10 @@ function PoolCheckboxes({ pools, selected, onChange }: { pools: Pool[]; selected
 
 function AddAccountModal({ pools, onClose }: { pools: Pool[]; onClose: () => void }) {
   const [name, setName] = useState('')
+  const [accountType, setAccountType] = useState<'oauth' | 'apikey'>('oauth')
   const [selectedPools, setSelectedPools] = useState<Set<number>>(new Set(pools[0]?.id ? [pools[0].id] : []))
   const [credJson, setCredJson] = useState('')
+  const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState('')
   const qc = useQueryClient()
 
@@ -39,7 +62,8 @@ function AddAccountModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
     mutationFn: () => accountsApi.create({
       name,
       pool_ids: [...selectedPools],
-      credentials_json: credJson,
+      account_type: accountType,
+      ...(accountType === 'oauth' ? { credentials_json: credJson } : { api_key: apiKey }),
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); onClose() },
     onError: (e: Error) => setError(e.message),
@@ -53,33 +77,60 @@ function AddAccountModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
     }
   }, null, 2)
 
+  const canSubmit = name && (accountType === 'oauth' ? credJson : apiKey)
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl">
-        <h2 className="text-lg font-semibold mb-1 dark:text-white">Add Claude Account</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
-          Paste the content of <code className="bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-1 rounded">~/.claude/.credentials.json</code>
-        </p>
+        <h2 className="text-lg font-semibold mb-1 dark:text-white">Add Account</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">Add an OAuth account or an Anthropic API key.</p>
         <div className="space-y-4">
+          {/* Type toggle */}
+          <div className="flex gap-2">
+            <button onClick={() => setAccountType('oauth')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${accountType === 'oauth' ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300' : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+              OAuth Account
+            </button>
+            <button onClick={() => setAccountType('apikey')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${accountType === 'apikey' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+              API Key
+            </button>
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
             <input
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-              value={name} onChange={e => setName(e.target.value)} placeholder="My Claude Pro Account"
+              value={name} onChange={e => setName(e.target.value)}
+              placeholder={accountType === 'oauth' ? 'My Claude Pro Account' : 'My API Subscription'}
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pools (optional)</label>
             <PoolCheckboxes pools={pools} selected={selectedPools} onChange={setSelectedPools} />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Credentials JSON</label>
-            <textarea
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-xs h-40 resize-none dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-              value={credJson} onChange={e => setCredJson(e.target.value)}
-              placeholder={placeholder}
-            />
-          </div>
+          {accountType === 'oauth' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Credentials JSON</label>
+              <textarea
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-xs h-40 resize-none dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                value={credJson} onChange={e => setCredJson(e.target.value)}
+                placeholder={placeholder}
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">API Key</label>
+              <input
+                type="password"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                value={apiKey} onChange={e => setApiKey(e.target.value)}
+                placeholder="sk-ant-api03-..."
+              />
+              <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">
+                API keys are disabled by default. Enable manually or they activate as fallback when all OAuth accounts are exhausted.
+              </p>
+            </div>
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
         <div className="flex gap-3 mt-6">
@@ -88,7 +139,7 @@ function AddAccountModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
           </button>
           <button
             onClick={() => mutation.mutate()}
-            disabled={!name || !credJson || mutation.isPending}
+            disabled={!canSubmit || mutation.isPending}
             className="flex-1 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm hover:bg-brand-600 disabled:opacity-50"
           >
             {mutation.isPending ? 'Adding...' : 'Add Account'}
@@ -263,12 +314,34 @@ function UserInfoPopup({ user, onClose }: { user: User; onClose: () => void }) {
 
 type Toast = { id: number; message: string; ok: boolean }
 
+function ApiKeyStatsCell({ accountId }: { accountId: number }) {
+  const { data: stats } = useQuery({
+    queryKey: ['account-stats', accountId],
+    queryFn: () => accountsApi.stats(accountId),
+  })
+  if (!stats) return <span className="text-gray-400 text-xs">—</span>
+  const total = stats.total
+  return (
+    <div className="text-xs space-y-0.5">
+      <p className="text-gray-700 dark:text-gray-300">{total.requests.toLocaleString()} reqs</p>
+      <p className="text-gray-500 dark:text-gray-400">
+        {(total.input_tokens / 1000).toFixed(0)}K in / {(total.output_tokens / 1000).toFixed(0)}K out
+      </p>
+      {total.est_cost_usd != null && total.est_cost_usd > 0 && (
+        <p className="text-amber-600 font-medium">${total.est_cost_usd.toFixed(2)}</p>
+      )}
+    </div>
+  )
+}
+
 export default function Accounts() {
   const [showAdd, setShowAdd] = useState(false)
   const [editAccount, setEditAccount] = useState<Account | null>(null)
   const [credAccount, setCredAccount] = useState<Account | null>(null)
   const [quotaAccount, setQuotaAccount] = useState<Account | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; confirmLabel: string; danger: boolean; action: () => void } | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
+  const [tab, setTab] = useState<'oauth' | 'apikey'>('oauth')
   const qc = useQueryClient()
 
   const addToast = (message: string, ok: boolean) => {
@@ -278,6 +351,8 @@ export default function Accounts() {
   }
 
   const { data: accounts = [], isLoading } = useQuery({ queryKey: ['accounts'], queryFn: accountsApi.list })
+  const oauthAccounts = accounts.filter(a => a.account_type !== 'apikey')
+  const apiKeyAccounts = accounts.filter(a => a.account_type === 'apikey')
   const { data: pools = [] } = useQuery({ queryKey: ['pools'], queryFn: poolsApi.list })
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
   const [ownerUser, setOwnerUser] = useState<User | null>(null)
@@ -309,6 +384,14 @@ export default function Accounts() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); addToast('Account unlinked from pool', true) },
     onError: (e: Error) => addToast('Unlink failed: ' + e.message, false),
   })
+
+  const toggleMutation = useMutation({
+    mutationFn: accountsApi.toggle,
+    onSuccess: (data) => { qc.invalidateQueries({ queryKey: ['accounts'] }); addToast(`Account ${data.status}`, true) },
+    onError: (e: Error) => addToast('Toggle failed: ' + e.message, false),
+  })
+
+  const isApiKey = (a: Account) => a.account_type === 'apikey'
 
   const poolBadges = (account: Account) => {
     const ap = account.pools ?? []
@@ -348,12 +431,23 @@ export default function Accounts() {
         </button>
       </div>
 
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+        <button onClick={() => setTab('oauth')}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'oauth' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}>
+          OAuth Accounts ({oauthAccounts.length})
+        </button>
+        <button onClick={() => setTab('apikey')}
+          className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'apikey' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}>
+          API Keys ({apiKeyAccounts.length})
+        </button>
+      </div>
+
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-gray-400 dark:text-gray-500">Loading...</div>
-        ) : accounts.length === 0 ? (
+        ) : (tab === 'oauth' ? oauthAccounts : apiKeyAccounts).length === 0 ? (
           <div className="p-8 text-center text-gray-400 dark:text-gray-500">
-            No accounts yet. Add a Claude account to start proxying.
+            {tab === 'oauth' ? 'No OAuth accounts yet.' : 'No API keys yet.'}
           </div>
         ) : (
           <table className="w-full">
@@ -362,24 +456,27 @@ export default function Accounts() {
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Name</th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Pools</th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Token Expires</th>
+                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{tab === 'oauth' ? 'Token Expires' : 'Usage Stats'}</th>
                 <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Last Used</th>
                 <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-              {accounts.map(account => (
+              {(tab === 'oauth' ? oauthAccounts : apiKeyAccounts).map(account => (
                 <tr key={account.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-gray-900 dark:text-white">{account.name}</p>
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isApiKey(account) ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'}`}>
+                        {isApiKey(account) ? 'API Key' : 'OAuth'}
+                      </span>
                       {account.owner_user_id && (() => {
                         const owner = users.find(u => u.id === account.owner_user_id)
                         return (
                           <button
                             onClick={() => owner && setOwnerUser(owner)}
                             title={`Owned by user #${account.owner_user_id} — click to view`}
-                            className="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors cursor-pointer"
+                            className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors cursor-pointer"
                           >
                             {owner ? owner.name : 'personal'}
                           </button>
@@ -393,7 +490,9 @@ export default function Accounts() {
                   <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{poolBadges(account)}</td>
                   <td className="px-6 py-4"><StatusBadge status={account.status} /></td>
                   <td className="px-6 py-4 text-sm">
-                    {(() => {
+                    {isApiKey(account) ? (
+                      <ApiKeyStatsCell accountId={account.id} />
+                    ) : (() => {
                       const exp = new Date(account.expires_at)
                       const now = new Date()
                       const diffMs = exp.getTime() - now.getTime()
@@ -414,19 +513,21 @@ export default function Accounts() {
                       >
                         <CheckCircle className="w-4 h-4" />
                       </button>
+                      {!isApiKey(account) && (
+                        <button
+                          title="Refresh token"
+                          onClick={() => refreshMutation.mutate(account.id)}
+                          className="p-1.5 text-gray-400 hover:text-blue-500 rounded"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
-                        title="Refresh token"
-                        onClick={() => refreshMutation.mutate(account.id)}
-                        className="p-1.5 text-gray-400 hover:text-blue-500 rounded"
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                      </button>
-                      <button
-                        title="Reset to active"
-                        onClick={() => resetMutation.mutate(account.id)}
+                        title={account.status === 'disabled' ? 'Enable' : account.status === 'active' ? 'Disable' : 'Reset to active'}
+                        onClick={() => isApiKey(account) || account.status === 'disabled' ? toggleMutation.mutate(account.id) : resetMutation.mutate(account.id)}
                         className="p-1.5 text-gray-400 hover:text-yellow-500 rounded"
                       >
-                        <RotateCcw className="w-4 h-4" />
+                        {account.status === 'disabled' ? <Power className="w-4 h-4" /> : <RotateCcw className="w-4 h-4" />}
                       </button>
                       <button
                         title="Edit account"
@@ -435,26 +536,34 @@ export default function Accounts() {
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button
-                        title="View credentials JSON"
-                        onClick={() => setCredAccount(account)}
-                        className="p-1.5 text-gray-400 hover:text-orange-500 rounded"
-                      >
-                        <KeyRound className="w-4 h-4" />
-                      </button>
-                      <button
-                        title="Claude.ai quota"
-                        onClick={() => setQuotaAccount(account)}
-                        className="p-1.5 text-gray-400 hover:text-teal-500 rounded"
-                      >
-                        <BarChart2 className="w-4 h-4" />
-                      </button>
+                      {!isApiKey(account) && (
+                        <button
+                          title="View credentials JSON"
+                          onClick={() => setCredAccount(account)}
+                          className="p-1.5 text-gray-400 hover:text-orange-500 rounded"
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </button>
+                      )}
+                      {!isApiKey(account) && (
+                        <button
+                          title="Claude.ai quota"
+                          onClick={() => setQuotaAccount(account)}
+                          className="p-1.5 text-gray-400 hover:text-teal-500 rounded"
+                        >
+                          <BarChart2 className="w-4 h-4" />
+                        </button>
+                      )}
                       {(account.pools ?? []).length > 0 && (
                         <button
                           title="Unlink from all pools"
-                          onClick={() => {
-                            if (confirm(`Unlink "${account.name}" from all pools?`)) unlinkMutation.mutate(account.id)
-                          }}
+                          onClick={() => setConfirmAction({
+                            title: 'Unlink account',
+                            message: `Remove "${account.name}" from all assigned pools?`,
+                            confirmLabel: 'Unlink',
+                            danger: false,
+                            action: () => unlinkMutation.mutate(account.id),
+                          })}
                           className="p-1.5 text-gray-400 hover:text-purple-500 rounded"
                         >
                           <Link2Off className="w-4 h-4" />
@@ -462,9 +571,13 @@ export default function Accounts() {
                       )}
                       <button
                         title="Delete"
-                        onClick={() => {
-                          if (confirm(`Delete account "${account.name}"?`)) deleteMutation.mutate(account.id)
-                        }}
+                        onClick={() => setConfirmAction({
+                          title: 'Delete account',
+                          message: `Permanently delete "${account.name}"? This cannot be undone.`,
+                          confirmLabel: 'Delete',
+                          danger: true,
+                          action: () => deleteMutation.mutate(account.id),
+                        })}
                         className="p-1.5 text-gray-400 hover:text-red-500 rounded"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -483,6 +596,16 @@ export default function Accounts() {
       {credAccount && <CredentialsModal account={credAccount} onClose={() => setCredAccount(null)} />}
       {quotaAccount && <QuotaModal account={quotaAccount} onClose={() => setQuotaAccount(null)} />}
       {ownerUser && <UserInfoPopup user={ownerUser} onClose={() => setOwnerUser(null)} />}
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          confirmLabel={confirmAction.confirmLabel}
+          danger={confirmAction.danger}
+          onConfirm={() => { confirmAction.action(); setConfirmAction(null) }}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
     </div>
   )
 }

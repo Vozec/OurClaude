@@ -52,7 +52,6 @@ export const usersApi = {
   list:        () => get<User[]>('/admin/users'),
   create:      (body: {
                   name: string
-                  pool_id?: number
                   pool_ids?: number[]
                   token_expires_at?: string
                   daily_token_quota?: number
@@ -64,7 +63,6 @@ export const usersApi = {
                 }) => post<User>('/admin/users', body),
   update:      (id: number, body: Partial<{
                   name: string
-                  pool_id: number | null
                   pool_ids: number[]
                   active: boolean
                   token_expires_at: string | null
@@ -97,7 +95,7 @@ export const poolsApi = {
 export const accountsApi = {
   list:        () => get<Account[]>('/admin/accounts'),
   stats:       (id: number) => get<AccountStats>(`/admin/accounts/${id}/stats`),
-  create:      (body: { name: string; pool_ids?: number[]; credentials_json: string }) =>
+  create:      (body: { name: string; pool_ids?: number[]; account_type?: string; credentials_json?: string; api_key?: string }) =>
                  post<Account>('/admin/accounts', body),
   update:      (id: number, body: Partial<{ name: string; pool_ids: number[] }>) =>
                  put<Account>(`/admin/accounts/${id}`, body),
@@ -108,6 +106,7 @@ export const accountsApi = {
   credentials: (id: number) => get<Record<string, unknown>>(`/admin/accounts/${id}/credentials`),
   unlink:      (id: number, poolId?: number) => del<void>(`/admin/accounts/${id}/pool${poolId ? `?pool_id=${poolId}` : ''}`),
   quota:       (id: number) => get<unknown>(`/admin/accounts/${id}/quota`),
+  toggle:      (id: number) => post<{ status: string }>(`/admin/accounts/${id}/toggle`),
 }
 
 // Stats
@@ -160,7 +159,7 @@ export const webhooksApi = {
 // Invites
 export const invitesApi = {
   list:   () => get<Invite[]>('/admin/invites'),
-  create: (body: { label?: string; pool_id?: number; pool_ids?: number[]; expires_in_hours?: number }) =>
+  create: (body: { label?: string; pool_ids?: number[]; expires_in_hours?: number }) =>
             post<InviteCreated>('/admin/invites', body),
   delete: (id: number) => del(`/admin/invites/${id}`),
   use:    (body: { token: string; name: string }) =>
@@ -230,10 +229,10 @@ export interface Pool {
 
 export interface Account {
   id: number
-  pool_id?: number | null // legacy
   pools?: Pool[]
+  account_type?: 'oauth' | 'apikey'
   name: string
-  status: 'active' | 'exhausted' | 'error'
+  status: 'active' | 'exhausted' | 'error' | 'disabled'
   last_error?: string
   expires_at: string
   last_used_at?: string
@@ -245,8 +244,6 @@ export interface User {
   id: number
   name: string
   api_token: string
-  pool_id?: number
-  pool?: Pool
   pools?: Pool[]
   active: boolean
   token_expires_at?: string
@@ -337,8 +334,6 @@ export interface Invite {
   id: number
   token: string
   label: string
-  pool_id?: number
-  pool?: Pool
   pools?: Pool[]
   expires_at: string
   used_at?: string
@@ -350,7 +345,6 @@ export interface InviteCreated {
   id: number
   token: string
   label: string
-  pool_id?: number
   pool_ids?: number[]
   expires_at: string
 }
@@ -488,6 +482,7 @@ export const conversationsApi = {
   },
   get:       (id: number) => get<ConversationDetail>(`/admin/conversations/${id}`),
   exportURL: () => `/api/admin/conversations/export`,
+  exportOneURL: (id: number) => `/api/admin/conversations/${id}/export`,
 }
 
 export interface ConversationSummary {

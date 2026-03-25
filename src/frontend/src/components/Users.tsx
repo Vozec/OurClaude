@@ -198,10 +198,7 @@ function CreateUserModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
 }
 
 function EditUserModal({ user, pools, onClose }: { user: User; pools: Pool[]; onClose: () => void }) {
-  // Initialize from user.pools (multi) or fall back to legacy user.pool_id
-  const initialPoolIds = user.pools && user.pools.length > 0
-    ? user.pools.map(p => p.id)
-    : user.pool_id ? [user.pool_id] : []
+  const initialPoolIds = (user.pools ?? []).map(p => p.id)
 
   const [poolIds, setPoolIds] = useState<number[]>(initialPoolIds)
   const [active, setActive] = useState(user.active)
@@ -307,7 +304,7 @@ function EditUserModal({ user, pools, onClose }: { user: User; pools: Pool[]; on
 }
 
 function PoolBadges({ user }: { user: User }) {
-  const pools = user.pools && user.pools.length > 0 ? user.pools : user.pool ? [user.pool] : []
+  const pools = user.pools ?? []
   if (pools.length === 0) return <span className="text-gray-300 dark:text-gray-600">—</span>
   return (
     <div className="flex flex-wrap gap-1">

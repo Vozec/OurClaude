@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"claude-proxy/internal/config"
@@ -29,14 +30,15 @@ import (
 )
 
 type Server struct {
-	cfg        *config.Config
-	db         *gorm.DB
-	poolMgr    *pool.Manager
-	oauth      *oauth.Refresher
-	enc        *crypto.Encryptor
-	webhooks   *webhook.Dispatcher
-	logStream  *sse.Broadcaster
-	frontendFS fs.FS
+	cfg         *config.Config
+	db          *gorm.DB
+	poolMgr     *pool.Manager
+	oauth       *oauth.Refresher
+	enc         *crypto.Encryptor
+	webhooks    *webhook.Dispatcher
+	logStream   *sse.Broadcaster
+	statsStream *sse.Broadcaster
+	frontendFS  fs.FS
 }
 
 func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
@@ -46,14 +48,15 @@ func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
 	poolMgr := pool.New(db, oauthRefresher, enc, webhooks)
 
 	return &Server{
-		cfg:        cfg,
-		db:         db,
-		poolMgr:    poolMgr,
-		oauth:      oauthRefresher,
-		enc:        enc,
-		webhooks:   webhooks,
-		logStream:  sse.New(),
-		frontendFS: frontendFS,
+		cfg:         cfg,
+		db:          db,
+		poolMgr:     poolMgr,
+		oauth:       oauthRefresher,
+		enc:         enc,
+		webhooks:    webhooks,
+		logStream:   sse.New(),
+		statsStream: sse.New(),
+		frontendFS:  frontendFS,
 	}
 }
 
@@ -62,8 +65,12 @@ func (s *Server) SetupAdminRouter() http.Handler {
 
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RequestID)
+	origins := strings.Split(s.cfg.CORSOrigins, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
+	}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000"},
+		AllowedOrigins:   origins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
@@ -132,6 +139,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Post("/api/admin/accounts/{id}/refresh", accountsH.Refresh)
 		r.Post("/api/admin/accounts/{id}/reset", accountsH.Reset)
 		r.Post("/api/admin/accounts/{id}/test", accountsH.Test)
+		r.Post("/api/admin/accounts/{id}/toggle", accountsH.ToggleStatus)
 		r.Get("/api/admin/accounts/{id}/stats", accountsH.Stats)
 		r.Get("/api/admin/accounts/{id}/credentials", accountsH.Credentials)
 		r.Delete("/api/admin/accounts/{id}/pool", accountsH.Unlink)
@@ -176,6 +184,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Get("/api/admin/conversations", convsH.List)
 		r.Get("/api/admin/conversations/export", convsH.Export)
 		r.Get("/api/admin/conversations/{id}", convsH.Get)
+		r.Get("/api/admin/conversations/{id}/export", convsH.ExportOne)
 
 		// Model aliases
 		aliasesH := handlers.NewAliasesHandler(s.db)
@@ -197,6 +206,9 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		// Log stream (SSE)
 		logStreamH := handlers.NewLogStreamHandler(s.logStream)
 		r.Get("/api/admin/logs/stream", logStreamH.Stream)
+
+		// Stats stream (SSE)
+		r.Get("/api/admin/stats/stream", handlers.NewLogStreamHandler(s.statsStream).Stream)
 
 		// Downloads (admin: list platforms + direct download + link management)
 		downloadsH := handlers.NewDownloadsHandler(s.db, s.cfg.DistDir)
@@ -224,7 +236,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	r.Get("/api/user/pool-status", userSelfH.PoolStatus)
 
 	// Anthropic proxy mounted at /proxy — ANTHROPIC_BASE_URL=http://server:3000/proxy
-	proxyH := proxy.New(s.db, s.poolMgr, s.cfg.AnthropicURL, s.cfg.UserMaxRPM, s.cfg.RedisURL, s.cfg.PromptCacheInject, s.webhooks, s.logStream)
+	proxyH := proxy.New(s.db, s.poolMgr, s.cfg.AnthropicURL, s.cfg.UserMaxRPM, s.cfg.RedisURL, s.cfg.PromptCacheInject, s.webhooks, s.logStream, s.statsStream)
 	r.Mount("/proxy", proxyH)
 
 	r.Get("/*", s.frontendHandler())

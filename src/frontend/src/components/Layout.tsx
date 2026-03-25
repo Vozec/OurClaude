@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { authApi, Admin } from '../lib/api'
@@ -37,7 +37,19 @@ export default function Layout({ admin, children }: LayoutProps) {
   const location = useLocation()
   const navigate  = useNavigate()
   const qc        = useQueryClient()
-  const [dark, setDark] = useState(document.documentElement.classList.contains('dark'))
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('theme')
+    if (saved) return saved === 'dark'
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+
+  useEffect(() => {
+    if (dark) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }, [dark])
 
   function toggleDark() {
     const next = !dark
