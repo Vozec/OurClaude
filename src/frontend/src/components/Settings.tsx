@@ -325,7 +325,6 @@ export default function Settings() {
         <p className="text-gray-500 dark:text-gray-400 mt-1">Manage security and system configuration.</p>
       </div>
       <SystemConfigSection />
-      <DarkModeSection />
       <TOTPSection />
       <PasswordSection />
     </div>

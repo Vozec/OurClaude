@@ -1,16 +1,9 @@
 const BASE = '/api'
 
-// CSRF token stored in memory, populated from /api/auth/me response
-let csrfToken = ''
-export function setCsrfToken(token: string) { csrfToken = token }
-
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   if (body) {
     headers['Content-Type'] = 'application/json'
-  }
-  if (csrfToken) {
-    headers['X-CSRF-Token'] = csrfToken
   }
 
   const res = await fetch(`${BASE}${path}`, {
@@ -243,24 +236,44 @@ export const mcpApi = {
   delete: (id: number) => del(`/admin/mcp-servers/${id}`),
 }
 
-// Quotas
+// Anthropic Quotas
 export const quotasApi = {
-  overview: () => get<QuotaOverview>('/admin/quotas'),
+  all:       () => get<AccountQuotaWithInfo[]>('/admin/quotas'),
+  account:   (id: number) => get<AccountQuotaData>(`/admin/accounts/${id}/quota`),
+  pool:      (id: number) => get<PoolQuotaAgg>(`/admin/pools/${id}/quotas`),
 }
 
-export interface QuotaEntry {
-  entity_type: string  // "user" | "team" | "pool"
-  entity_id: number
-  entity_name: string
-  daily_used: number
-  daily_limit: number
-  monthly_used: number
-  monthly_limit: number
-  budget_used: number
-  budget_limit: number
+export interface AccountQuotaData {
+  id: number
+  account_id: number
+  five_hour_pct: number
+  five_hour_resets: string
+  seven_day_pct: number
+  seven_day_resets: string
+  opus_pct?: number
+  opus_resets?: string
+  sonnet_pct?: number
+  sonnet_resets?: string
+  extra_enabled: boolean
+  extra_limit?: number
+  extra_used?: number
+  error?: string
+  updated_at: string
 }
 
-export interface QuotaOverview { entries: QuotaEntry[] }
+export interface AccountQuotaWithInfo extends AccountQuotaData {
+  account_name: string
+  account_type: string
+  status: string
+  pools?: Pool[]
+}
+
+export interface PoolQuotaAgg {
+  count: number
+  avg_five_hour_pct: number
+  avg_seven_day_pct: number
+  quotas: AccountQuotaData[]
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -270,7 +283,6 @@ export interface Admin {
   totp_enabled: boolean
   role: string
   created_at: string
-  csrf_token?: string
 }
 
 export interface Pool {

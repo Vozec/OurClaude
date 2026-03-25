@@ -214,6 +214,26 @@ type MCPServer struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// AccountQuota stores cached Anthropic usage quotas fetched periodically.
+type AccountQuota struct {
+	ID             uint      `gorm:"primarykey" json:"id"`
+	AccountID      uint      `gorm:"uniqueIndex;not null" json:"account_id"`
+	FiveHourPct    int       `json:"five_hour_pct"`
+	FiveHourResets string    `json:"five_hour_resets"`
+	SevenDayPct    int       `json:"seven_day_pct"`
+	SevenDayResets string    `json:"seven_day_resets"`
+	OpusPct        *int      `json:"opus_pct,omitempty"`
+	OpusResets     string    `json:"opus_resets,omitempty"`
+	SonnetPct      *int      `json:"sonnet_pct,omitempty"`
+	SonnetResets   string    `json:"sonnet_resets,omitempty"`
+	ExtraEnabled   bool      `json:"extra_enabled"`
+	ExtraLimit     *float64  `json:"extra_limit,omitempty"`
+	ExtraUsed      *float64  `json:"extra_used,omitempty"`
+	RawJSON        string    `gorm:"type:text" json:"-"`
+	Error          string    `json:"error,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
 // Setting stores runtime-editable configuration (DB-backed, no restart needed).
 type Setting struct {
 	Key       string    `gorm:"primarykey" json:"key"`

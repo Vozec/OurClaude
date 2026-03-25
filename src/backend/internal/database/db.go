@@ -65,6 +65,7 @@ func New(dbType, path, dsn string) (*gorm.DB, error) {
 		&SetupToken{},
 		&Team{},
 		&MCPServer{},
+		&AccountQuota{},
 		&Setting{},
 	)
 	if err != nil {

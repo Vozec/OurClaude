@@ -34,6 +34,7 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		"prompt_cache_inject":  true,
 		"response_cache_ttl":   true,
 		"user_max_rpm":         true,
+		"quota_poll_interval":  true,
 	}
 
 	for k, v := range req {

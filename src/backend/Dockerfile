@@ -29,12 +29,19 @@ RUN CGO_ENABLED=1 GOOS=linux go build -tags prod \
     -ldflags="-s -w" \
     -o /claude-proxy ./cmd/server/
 
-# Cross-compile ourclaude client for all platforms (no CGO needed)
-RUN GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o /dist/ourclaude-linux-amd64   ./cmd/cl/ && \
-    GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o /dist/ourclaude-linux-arm64   ./cmd/cl/ && \
-    GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o /dist/ourclaude-darwin-amd64  ./cmd/cl/ && \
-    GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o /dist/ourclaude-darwin-arm64  ./cmd/cl/ && \
-    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o /dist/ourclaude-windows-amd64.exe ./cmd/cl/
+# Cross-compile ourclaude client (no CGO needed)
+# Set CLI_PLATFORMS to a comma-separated list to compile only specific targets.
+# Default: all. Example: CLI_PLATFORMS=linux-amd64
+ARG CLI_PLATFORMS=linux-amd64,linux-arm64,darwin-amd64,darwin-arm64,windows-amd64
+RUN mkdir -p /dist && \
+    for p in $(echo "$CLI_PLATFORMS" | tr ',' ' '); do \
+      os=$(echo "$p" | cut -d- -f1); \
+      arch=$(echo "$p" | cut -d- -f2); \
+      out="/dist/ourclaude-${p}"; \
+      [ "$os" = "windows" ] && out="${out}.exe"; \
+      echo "Building ${out}..."; \
+      GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -ldflags="-s -w" -o "$out" ./cmd/cl/; \
+    done
 
 # Stage 3: Runtime image
 FROM alpine:3.20

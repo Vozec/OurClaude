@@ -9,26 +9,23 @@ import {
 } from 'lucide-react'
 
 const navItems = [
-  { path: '/',          label: 'Dashboard',  icon: LayoutDashboard },
-  { path: '/users',     label: 'Users',      icon: Users },
-  { path: '/pools',     label: 'Pools',      icon: Layers },
-  { path: '/accounts',  label: 'Accounts',   icon: Server },
-  { path: '/analytics', label: 'Analytics',  icon: BarChart2 },
-  { path: '/quotas',    label: 'Quotas',     icon: Gauge },
-  { path: '/logs',      label: 'Logs',       icon: ScrollText },
-  { path: '/settings',  label: 'Settings',   icon: Settings },
-]
-
-const adminNavItems = [
-  { path: '/admins',    label: 'Admin Users', icon: ShieldCheck },
-  { path: '/webhooks',  label: 'Webhooks',    icon: Webhook },
-  { path: '/invites',   label: 'Invites',     icon: Mail },
-  { path: '/downloads', label: 'Downloads',   icon: Download },
-  { path: '/audit',     label: 'Audit Log',   icon: ClipboardList },
-  { path: '/aliases',  label: 'Model Aliases', icon: ArrowLeftRight },
-  { path: '/sessions', label: 'Sessions',       icon: MonitorSmartphone },
-  { path: '/teams',       label: 'Teams',        icon: UsersRound },
-  { path: '/mcp-servers', label: 'MCP Servers',  icon: Plug },
+  { path: '/',          label: 'Dashboard',     icon: LayoutDashboard },
+  { path: '/users',     label: 'Users',         icon: Users },
+  { path: '/teams',     label: 'Teams',         icon: UsersRound },
+  { path: '/pools',     label: 'Pools',         icon: Layers },
+  { path: '/accounts',  label: 'Accounts',      icon: Server },
+  { path: '/analytics', label: 'Analytics',     icon: BarChart2 },
+  { path: '/quotas',    label: 'Quotas',        icon: Gauge },
+  { path: '/admins',    label: 'Admin Users',   icon: ShieldCheck },
+  { path: '/webhooks',  label: 'Webhooks',      icon: Webhook },
+  { path: '/invites',   label: 'Invites',       icon: Mail },
+  { path: '/downloads', label: 'Downloads',     icon: Download },
+  { path: '/aliases',   label: 'Model Aliases', icon: ArrowLeftRight },
+  { path: '/sessions',  label: 'Sessions',      icon: MonitorSmartphone },
+  { path: '/mcp-servers', label: 'MCP Servers', icon: Plug },
+  { path: '/logs',      label: 'Logs',          icon: ScrollText },
+  { path: '/audit',     label: 'Audit Log',     icon: ClipboardList },
+  { path: '/settings',  label: 'Settings',      icon: Settings },
 ]
 
 interface LayoutProps {
@@ -150,17 +147,6 @@ export default function Layout({ admin, children }: LayoutProps) {
           <div className="space-y-0.5">
             {navItems.map(item => <NavLink key={item.path} {...item} />)}
           </div>
-
-          {admin.role === 'super_admin' && (
-            <>
-              <div className="mt-4 mb-2 px-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Admin
-              </div>
-              <div className="space-y-0.5">
-                {adminNavItems.map(item => <NavLink key={item.path} {...item} />)}
-              </div>
-            </>
-          )}
         </nav>
 
         {/* Footer */}

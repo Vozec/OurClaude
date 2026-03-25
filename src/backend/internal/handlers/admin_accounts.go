@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -435,7 +434,7 @@ func (h *AccountsHandler) Unlink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GET /api/admin/accounts/{id}/quota — fetches Claude.ai usage/quota data for this account
+// GET /api/admin/accounts/{id}/quota — returns cached Anthropic usage quota for this account
 func (h *AccountsHandler) Quota(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
@@ -454,33 +453,45 @@ func (h *AccountsHandler) Quota(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access, err := h.enc.Decrypt(account.AccessToken)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errResp("failed to decrypt token"))
+	var quota database.AccountQuota
+	if err := h.db.Where("account_id = ?", id).First(&quota).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("no quota data yet — poller may not have run"))
 		return
 	}
 
-	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(h.cfg.ClaudeAIURL, "/")+"/api/organizations", nil)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errResp("failed to build request"))
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+access)
-	req.Header.Set("User-Agent", "Mozilla/5.0 (claude-proxy)")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
+	writeJSON(w, http.StatusOK, quota)
+}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, errResp("upstream error: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
+// GET /api/admin/quotas — returns all account quotas (for Quotas page)
+func (h *AccountsHandler) AllQuotas(w http.ResponseWriter, r *http.Request) {
+	var quotas []database.AccountQuota
+	h.db.Find(&quotas)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	// Attach account name + pools
+	type quotaWithAccount struct {
+		database.AccountQuota
+		AccountName string          `json:"account_name"`
+		AccountType string          `json:"account_type"`
+		Status      string          `json:"status"`
+		Pools       []*database.Pool `json:"pools,omitempty"`
+	}
+
+	result := make([]quotaWithAccount, 0, len(quotas))
+	for _, q := range quotas {
+		var acc database.ClaudeAccount
+		if err := h.db.Preload("Pools").First(&acc, q.AccountID).Error; err != nil {
+			continue
+		}
+		result = append(result, quotaWithAccount{
+			AccountQuota: q,
+			AccountName:  acc.Name,
+			AccountType:  acc.AccountType,
+			Status:       acc.Status,
+			Pools:        acc.Pools,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // POST /api/admin/accounts/{id}/toggle — toggle active/disabled status

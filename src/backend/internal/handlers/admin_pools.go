@@ -233,3 +233,43 @@ func (h *PoolsHandler) Users(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, users)
 }
+
+// GET /api/admin/pools/{id}/quotas — average Anthropic quotas across accounts in this pool
+func (h *PoolsHandler) Quotas(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
+		return
+	}
+
+	// Get account IDs in this pool
+	var accountIDs []uint
+	h.db.Table("account_pools").Where("pool_id = ?", id).Pluck("account_id", &accountIDs)
+
+	if len(accountIDs) == 0 {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"count": 0, "avg_five_hour_pct": 0, "avg_seven_day_pct": 0, "quotas": []interface{}{},
+		})
+		return
+	}
+
+	var quotas []database.AccountQuota
+	h.db.Where("account_id IN ?", accountIDs).Find(&quotas)
+
+	var sumFive, sumSeven int
+	for _, q := range quotas {
+		sumFive += q.FiveHourPct
+		sumSeven += q.SevenDayPct
+	}
+	n := len(quotas)
+	if n == 0 {
+		n = 1
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"count":             len(quotas),
+		"avg_five_hour_pct": sumFive / n,
+		"avg_seven_day_pct": sumSeven / n,
+		"quotas":            quotas,
+	})
+}

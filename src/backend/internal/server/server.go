@@ -20,6 +20,7 @@ import (
 	"claude-proxy/internal/oauth"
 	"claude-proxy/internal/pool"
 	"claude-proxy/internal/proxy"
+	"claude-proxy/internal/quota"
 	"claude-proxy/internal/settings"
 	"claude-proxy/internal/sse"
 	"claude-proxy/internal/webhook"
@@ -56,6 +57,7 @@ func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
 		"prompt_cache_inject":  fmt.Sprintf("%v", cfg.PromptCacheInject),
 		"response_cache_ttl":   fmt.Sprintf("%d", int(cfg.ResponseCacheTTL.Seconds())),
 		"user_max_rpm":         fmt.Sprintf("%d", cfg.UserMaxRPM),
+		"quota_poll_interval":  "1",
 	})
 
 	return &Server{
@@ -112,7 +114,6 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	authMw := middleware.Authenticate(s.cfg)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw)
-		r.Use(middleware.CSRFProtect)
 
 		r.Get("/api/auth/me", authH.Me)
 		r.Post("/api/auth/totp/setup", authH.TOTPSetup)
@@ -140,6 +141,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Post("/api/admin/pools/{id}/reset", poolsH.Reset)
 		r.Get("/api/admin/pools/{id}/stats", poolsH.Stats)
 		r.Get("/api/admin/pools/{id}/users", poolsH.Users)
+		r.Get("/api/admin/pools/{id}/quotas", poolsH.Quotas)
 
 		// Teams
 		teamsH := handlers.NewTeamsHandler(s.db)
@@ -163,6 +165,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Get("/api/admin/accounts/{id}/credentials", accountsH.Credentials)
 		r.Delete("/api/admin/accounts/{id}/pool", accountsH.Unlink)
 		r.Get("/api/admin/accounts/{id}/quota", accountsH.Quota)
+		r.Get("/api/admin/quotas", accountsH.AllQuotas)
 
 		// Stats
 		statsH := handlers.NewStatsHandler(s.db)
@@ -344,6 +347,10 @@ func (s *Server) Start() error {
 
 	s.poolMgr.StartAutoReset(ctx, s.cfg.PoolResetInterval)
 	s.poolMgr.StartHealthCheck(ctx, s.cfg.HealthCheckInterval, s.cfg.AnthropicURL)
+
+	// Start Anthropic quota poller
+	quotaPoller := quota.New(s.db, s.enc, s.settings)
+	quotaPoller.Start(ctx)
 
 	router := s.SetupAdminRouter()
 

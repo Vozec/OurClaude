@@ -1,7 +1,7 @@
 import React, { Component, ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { authApi, setCsrfToken } from './lib/api'
+import { authApi } from './lib/api'
 import Login from './components/Login'
 import Layout from './components/Layout'
 import Dashboard from './components/Dashboard'
@@ -67,11 +67,7 @@ function App() {
 function PrivateRoutes() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['me'],
-    queryFn: async () => {
-      const admin = await authApi.me()
-      if (admin.csrf_token) setCsrfToken(admin.csrf_token)
-      return admin
-    },
+    queryFn: authApi.me,
     retry: false,
   })
 
