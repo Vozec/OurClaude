@@ -53,10 +53,14 @@ func (c *responseCache) setWithTTL(key string, entry *cachedResponse, ttl time.D
 	// Evict expired entries if at capacity
 	if len(c.cache) >= c.maxSize {
 		now := time.Now()
+		var expired []string
 		for k, v := range c.cache {
 			if now.After(v.expiresAt) {
-				delete(c.cache, k)
+				expired = append(expired, k)
 			}
+		}
+		for _, k := range expired {
+			delete(c.cache, k)
 		}
 	}
 

@@ -239,6 +239,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		mcpH := handlers.NewMCPHandler(s.db)
 		r.Get("/api/admin/mcp-servers", mcpH.List)
 		r.Post("/api/admin/mcp-servers", mcpH.Create)
+		r.Put("/api/admin/mcp-servers/{id}", mcpH.Update)
 		r.Delete("/api/admin/mcp-servers/{id}", mcpH.Delete)
 
 		// Downloads (admin: list platforms + direct download + link management)
@@ -346,6 +347,10 @@ func (s *Server) Start() error {
 	s.poolMgr.StartHealthCheck(ctx, s.cfg.HealthCheckInterval, s.cfg.AnthropicURL)
 
 	router := s.SetupAdminRouter()
+
+	if chiRouter, ok := router.(chi.Router); ok {
+		handlers.SetOpenAPISpec(handlers.GenerateOpenAPISpec(chiRouter))
+	}
 
 	addr := fmt.Sprintf("0.0.0.0:%s", s.cfg.WebPort)
 	server := &http.Server{

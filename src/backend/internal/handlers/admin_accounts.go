@@ -77,7 +77,11 @@ func (h *AccountsHandler) Create(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt API key"))
 			return
 		}
-		encEmpty, _ := h.enc.Encrypt("")
+		encEmpty, err := h.enc.Encrypt("")
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt"))
+			return
+		}
 		account = database.ClaudeAccount{
 			Name:         req.Name,
 			AccountType:  "apikey",

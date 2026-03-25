@@ -15,7 +15,6 @@ func estimateTokens(s string) int {
 // cache_control: {"type":"ephemeral"} on eligible blocks:
 //   - system prompt (string or content-block array) if > cacheInjectThreshold tokens
 //   - last tool definition if the total tools size > cacheInjectThreshold tokens
-//
 // Returns the original body unmodified if it cannot be parsed or no injection
 // is needed.
 func injectPromptCache(body []byte) []byte {

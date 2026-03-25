@@ -1,12 +1,8 @@
 package handlers
 
 import (
-	_ "embed"
 	"net/http"
 )
-
-//go:embed openapi.json
-var openapiJSON []byte
 
 // DocsUI serves the Swagger UI at /docs
 func DocsUI(w http.ResponseWriter, r *http.Request) {
@@ -18,7 +14,7 @@ func DocsUI(w http.ResponseWriter, r *http.Request) {
 func DocsSpec(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Write(openapiJSON)
+	w.Write(generatedSpec)
 }
 
 const docsHTML = `<!DOCTYPE html>

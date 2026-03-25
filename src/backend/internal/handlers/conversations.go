@@ -95,7 +95,9 @@ func (h *ConversationsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	// Parse messages JSON back to []interface{}
 	var messages interface{}
 	if log.MessagesJSON != "" {
-		json.Unmarshal([]byte(log.MessagesJSON), &messages)
+		if err := json.Unmarshal([]byte(log.MessagesJSON), &messages); err != nil {
+			messages = log.MessagesJSON // fallback to raw string
+		}
 	}
 
 	userName := ""
@@ -133,7 +135,9 @@ func (h *ConversationsHandler) ExportOne(w http.ResponseWriter, r *http.Request)
 
 	var messages interface{}
 	if log.MessagesJSON != "" {
-		json.Unmarshal([]byte(log.MessagesJSON), &messages)
+		if err := json.Unmarshal([]byte(log.MessagesJSON), &messages); err != nil {
+			messages = log.MessagesJSON // fallback to raw string
+		}
 	}
 
 	userName := ""
@@ -183,7 +187,9 @@ func (h *ConversationsHandler) Export(w http.ResponseWriter, r *http.Request) {
 	entries := make([]exportEntry, 0, len(logs))
 	for _, l := range logs {
 		var msgs interface{}
-		json.Unmarshal([]byte(l.MessagesJSON), &msgs)
+		if err := json.Unmarshal([]byte(l.MessagesJSON), &msgs); err != nil {
+			msgs = l.MessagesJSON // fallback to raw string
+		}
 		name := ""
 		if l.User != nil {
 			name = l.User.Name

@@ -30,7 +30,10 @@ func (h *MCPHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Args    string `json:"args"`
 		Env     string `json:"env"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
+		return
+	}
 	if req.Name == "" || req.Command == "" {
 		writeJSON(w, http.StatusBadRequest, errResp("name and command are required"))
 		return
@@ -50,7 +53,56 @@ func (h *MCPHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
 		return
 	}
-	h.db.Delete(&database.MCPServer{}, id)
-	logAudit(h.db, r, "delete_mcp_server", "mcp:"+r.URL.Path, "")
+	var server database.MCPServer
+	if err := h.db.First(&server, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("MCP server not found"))
+		return
+	}
+	if err := h.db.Delete(&database.MCPServer{}, id).Error; err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed to delete MCP server"))
+		return
+	}
+	logAudit(h.db, r, "delete_mcp_server", "mcp:"+server.Name, "")
 	writeJSON(w, http.StatusOK, map[string]string{"message": "MCP server deleted"})
+}
+
+func (h *MCPHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
+		return
+	}
+	var req struct {
+		Name    string `json:"name"`
+		Command string `json:"command"`
+		Args    string `json:"args"`
+		Env     string `json:"env"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
+		return
+	}
+	updates := map[string]interface{}{}
+	if req.Name != "" {
+		updates["name"] = req.Name
+	}
+	if req.Command != "" {
+		updates["command"] = req.Command
+	}
+	if req.Args != "" {
+		updates["args"] = req.Args
+	}
+	if req.Env != "" {
+		updates["env"] = req.Env
+	}
+	if err := h.db.Model(&database.MCPServer{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed to update"))
+		return
+	}
+	var server database.MCPServer
+	if err := h.db.First(&server, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, server)
 }

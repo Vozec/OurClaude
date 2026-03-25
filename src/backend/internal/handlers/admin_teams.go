@@ -29,7 +29,10 @@ func (h *TeamsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		MonthlyBudgetUSD  float64 `json:"monthly_budget_usd"`
 		MonthlyTokenQuota int     `json:"monthly_token_quota"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
+		return
+	}
 	if req.Name == "" {
 		writeJSON(w, http.StatusBadRequest, errResp("name is required"))
 		return
@@ -54,7 +57,10 @@ func (h *TeamsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		MonthlyBudgetUSD  *float64 `json:"monthly_budget_usd"`
 		MonthlyTokenQuota *int     `json:"monthly_token_quota"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
+		return
+	}
 	updates := map[string]interface{}{}
 	if req.Name != "" {
 		updates["name"] = req.Name
@@ -65,9 +71,15 @@ func (h *TeamsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if req.MonthlyTokenQuota != nil {
 		updates["monthly_token_quota"] = *req.MonthlyTokenQuota
 	}
-	h.db.Model(&database.Team{}).Where("id = ?", id).Updates(updates)
+	if err := h.db.Model(&database.Team{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed to update team"))
+		return
+	}
 	var team database.Team
-	h.db.First(&team, id)
+	if err := h.db.First(&team, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("team not found"))
+		return
+	}
 	writeJSON(w, http.StatusOK, team)
 }
 
@@ -77,7 +89,15 @@ func (h *TeamsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
 		return
 	}
-	h.db.Delete(&database.Team{}, id)
-	logAudit(h.db, r, "delete_team", "team:"+r.URL.Path, "")
+	var team database.Team
+	if err := h.db.First(&team, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("team not found"))
+		return
+	}
+	if err := h.db.Delete(&database.Team{}, id).Error; err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed to delete team"))
+		return
+	}
+	logAudit(h.db, r, "delete_team", "team:"+team.Name, "")
 	writeJSON(w, http.StatusOK, map[string]string{"message": "team deleted"})
 }

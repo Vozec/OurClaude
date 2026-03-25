@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { statsApi } from '../lib/api'
+import { statsApi, type OverviewStats } from '../lib/api'
 import { MessageSquare, Zap, Users, Server, ArrowRight, AlertTriangle, DollarSign, Database } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -56,7 +56,7 @@ export default function Dashboard() {
       try {
         const evt = JSON.parse(e.data)
         if (evt.type === 'usage') {
-          qc.setQueryData(['stats', 'overview'], (old: any) => {
+          qc.setQueryData(['stats', 'overview'], (old: OverviewStats | undefined) => {
             if (!old) return old
             return {
               ...old,
