@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+  :root {
+    --chart-grid: #f0f0f0;
+  }
+  .dark {
+    --chart-grid: #374151;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50 transition-colors;
+  }
+}

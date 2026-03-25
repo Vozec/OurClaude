@@ -1,0 +1,39 @@
+services:
+  claude-proxy:
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+      - "${PROXY_PORT:-8080}:8080"
+    # volumes:
+      # - claude_proxy_data:/data
+    environment:
+      - WEB_PORT=3000
+      - PROXY_PORT=8080
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD is required on first run}
+      - DB_PATH=/data/claude-proxy.db
+      - ANTHROPIC_URL=${ANTHROPIC_URL:-https://api.anthropic.com}
+      - OAUTH_REFRESH_URL=${OAUTH_REFRESH_URL:-https://console.anthropic.com/v1/auth/oauth2/token}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
+      - POOL_RESET_INTERVAL_MINUTES=${POOL_RESET_INTERVAL_MINUTES:-}
+      - USER_MAX_RPM=${USER_MAX_RPM:-0}
+      - DIST_DIR=/usr/local/share/cl
+      - PROMPT_CACHE_INJECT=${PROMPT_CACHE_INJECT:-true}
+      - HEALTH_CHECK_INTERVAL_MINUTES=${HEALTH_CHECK_INTERVAL_MINUTES:-}
+      - REDIS_URL=${REDIS_URL:-}
+      - DB_TYPE=${DB_TYPE:-sqlite}
+      - POSTGRES_DSN=${POSTGRES_DSN:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/auth/me"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# volumes:
+  # claude_proxy_data:

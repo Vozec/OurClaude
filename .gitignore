@@ -1,0 +1,28 @@
+# Environment
+.env
+
+# Claude Code session files
+.claude/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+src/frontend/node_modules/
+src/frontend/dist/
+
+# Go embed copy (populated during Docker build)
+backend/cmd/server/frontend/dist/
+
+# Go binaries
+backend/cmd/server/server
+dist/
+*.out
+
+# Data
+data/
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

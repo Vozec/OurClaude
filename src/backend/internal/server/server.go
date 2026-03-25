@@ -1,0 +1,331 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"log"
+	"net/http"
+	"os/signal"
+	"syscall"
+
+	"claude-proxy/internal/config"
+	"claude-proxy/internal/crypto"
+	"claude-proxy/internal/handlers"
+	_ "claude-proxy/internal/metrics" // register Prometheus collectors
+	"claude-proxy/internal/middleware"
+	"claude-proxy/internal/oauth"
+	"claude-proxy/internal/pool"
+	"claude-proxy/internal/proxy"
+	"claude-proxy/internal/sse"
+	"claude-proxy/internal/webhook"
+
+	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"gorm.io/gorm"
+)
+
+type Server struct {
+	cfg        *config.Config
+	db         *gorm.DB
+	poolMgr    *pool.Manager
+	oauth      *oauth.Refresher
+	enc        *crypto.Encryptor
+	webhooks   *webhook.Dispatcher
+	logStream  *sse.Broadcaster
+	frontendFS fs.FS
+}
+
+func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
+	enc := crypto.NewEncryptor(cfg.EncryptionKey)
+	oauthRefresher := oauth.New(cfg.OAuthRefreshURL, enc)
+	webhooks := webhook.New(db)
+	poolMgr := pool.New(db, oauthRefresher, enc, webhooks)
+
+	return &Server{
+		cfg:        cfg,
+		db:         db,
+		poolMgr:    poolMgr,
+		oauth:      oauthRefresher,
+		enc:        enc,
+		webhooks:   webhooks,
+		logStream:  sse.New(),
+		frontendFS: frontendFS,
+	}
+}
+
+func (s *Server) SetupAdminRouter() http.Handler {
+	r := chi.NewRouter()
+
+	r.Use(chimiddleware.Recoverer)
+	r.Use(chimiddleware.RequestID)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+
+	// Health check + Prometheus metrics (public)
+	r.Get("/healthz", s.healthCheck())
+	r.Handle("/metrics", promhttp.Handler())
+
+	// API documentation (public)
+	r.Get("/docs", handlers.DocsUI)
+	r.Get("/docs/openapi.json", handlers.DocsSpec)
+
+	// Auth
+	authH := handlers.NewAuthHandler(s.db, s.cfg)
+	r.Post("/api/auth/login", authH.Login)
+	r.Post("/api/auth/logout", authH.Logout)
+
+	// Public: use an invite
+	invitesH := handlers.NewInvitesHandler(s.db)
+	r.Post("/api/invite/use", invitesH.Use)
+
+	authMw := middleware.Authenticate(s.cfg)
+	r.Group(func(r chi.Router) {
+		r.Use(authMw)
+
+		r.Get("/api/auth/me", authH.Me)
+		r.Post("/api/auth/totp/setup", authH.TOTPSetup)
+		r.Post("/api/auth/totp/enable", authH.TOTPEnable)
+		r.Post("/api/auth/totp/disable", authH.TOTPDisable)
+		r.Put("/api/auth/password", authH.ChangePassword)
+
+		// Users
+		usersH := handlers.NewUsersHandler(s.db)
+		r.Get("/api/admin/users", usersH.List)
+		r.Post("/api/admin/users", usersH.Create)
+		r.Get("/api/admin/users/{id}", usersH.Get)
+		r.Put("/api/admin/users/{id}", usersH.Update)
+		r.Delete("/api/admin/users/{id}", usersH.Delete)
+		r.Post("/api/admin/users/{id}/rotate-token", usersH.RotateToken)
+
+		// Pools
+		poolsH := handlers.NewPoolsHandler(s.db, s.poolMgr)
+		r.Get("/api/admin/pools", poolsH.List)
+		r.Post("/api/admin/pools", poolsH.Create)
+		r.Get("/api/admin/pools/{id}", poolsH.Get)
+		r.Put("/api/admin/pools/{id}", poolsH.Update)
+		r.Delete("/api/admin/pools/{id}", poolsH.Delete)
+		r.Post("/api/admin/pools/{id}/reset", poolsH.Reset)
+		r.Get("/api/admin/pools/{id}/stats", poolsH.Stats)
+		r.Get("/api/admin/pools/{id}/users", poolsH.Users)
+
+		// Accounts
+		accountsH := handlers.NewAccountsHandler(s.db, s.enc, s.oauth, s.poolMgr)
+		r.Get("/api/admin/accounts", accountsH.List)
+		r.Post("/api/admin/accounts", accountsH.Create)
+		r.Get("/api/admin/accounts/{id}", accountsH.Get)
+		r.Put("/api/admin/accounts/{id}", accountsH.Update)
+		r.Delete("/api/admin/accounts/{id}", accountsH.Delete)
+		r.Post("/api/admin/accounts/{id}/refresh", accountsH.Refresh)
+		r.Post("/api/admin/accounts/{id}/reset", accountsH.Reset)
+		r.Post("/api/admin/accounts/{id}/test", accountsH.Test)
+		r.Get("/api/admin/accounts/{id}/stats", accountsH.Stats)
+
+		// Stats
+		statsH := handlers.NewStatsHandler(s.db)
+		r.Get("/api/admin/stats/overview", statsH.Overview)
+		r.Get("/api/admin/stats/usage", statsH.Usage)
+		r.Get("/api/admin/stats/by-user", statsH.ByUser)
+		r.Get("/api/admin/stats/by-day", statsH.ByDay)
+		r.Get("/api/admin/stats/by-model", statsH.ByModel)
+		r.Get("/api/admin/stats/export", statsH.ExportCSV)
+
+		// Admins (multiple admin accounts)
+		adminsH := handlers.NewAdminsHandler(s.db, s.cfg)
+		r.Get("/api/admin/admins", adminsH.List)
+		r.Post("/api/admin/admins", adminsH.Create)
+		r.Put("/api/admin/admins/{id}", adminsH.Update)
+		r.Delete("/api/admin/admins/{id}", adminsH.Delete)
+		r.Post("/api/admin/admins/{id}/generate-session", adminsH.GenerateSession)
+
+		// Webhooks
+		webhooksH := handlers.NewWebhooksHandler(s.db)
+		r.Get("/api/admin/webhooks", webhooksH.List)
+		r.Post("/api/admin/webhooks", webhooksH.Create)
+		r.Put("/api/admin/webhooks/{id}", webhooksH.Update)
+		r.Delete("/api/admin/webhooks/{id}", webhooksH.Delete)
+		r.Post("/api/admin/webhooks/{id}/test", webhooksH.Test)
+
+		// Invites
+		r.Get("/api/admin/invites", invitesH.List)
+		r.Post("/api/admin/invites", invitesH.Create)
+		r.Delete("/api/admin/invites/{id}", invitesH.Delete)
+
+		// Audit log
+		auditH := handlers.NewAuditHandler(s.db)
+		r.Get("/api/admin/audit", auditH.List)
+
+		// Conversation logs
+		convsH := handlers.NewConversationsHandler(s.db)
+		r.Get("/api/admin/conversations", convsH.List)
+		r.Get("/api/admin/conversations/export", convsH.Export)
+		r.Get("/api/admin/conversations/{id}", convsH.Get)
+
+		// Model aliases
+		aliasesH := handlers.NewAliasesHandler(s.db)
+		r.Get("/api/admin/model-aliases", aliasesH.List)
+		r.Post("/api/admin/model-aliases", aliasesH.Create)
+		r.Delete("/api/admin/model-aliases/{id}", aliasesH.Delete)
+
+		// Admin sessions
+		sessionsH := handlers.NewSessionsHandler(s.db)
+		r.Get("/api/admin/sessions", sessionsH.List)
+		r.Delete("/api/admin/sessions/{id}", sessionsH.Revoke)
+
+		// Stats: latency
+		r.Get("/api/admin/stats/latency", statsH.Latency)
+
+		// Log stream (SSE)
+		logStreamH := handlers.NewLogStreamHandler(s.logStream)
+		r.Get("/api/admin/logs/stream", logStreamH.Stream)
+
+		// Downloads (admin: list platforms + direct download + link management)
+		downloadsH := handlers.NewDownloadsHandler(s.db, s.cfg.DistDir)
+		r.Get("/api/downloads", downloadsH.ListPlatforms)
+		r.Get("/api/downloads/{platform}", downloadsH.AuthDownload)
+		r.Get("/api/admin/download-links", downloadsH.ListLinks)
+		r.Post("/api/admin/download-links", downloadsH.CreateLink)
+		r.Post("/api/admin/download-links/{id}/revoke", downloadsH.RevokeLink)
+		r.Delete("/api/admin/download-links/{id}", downloadsH.DeleteLink)
+		r.Get("/api/admin/binary-downloads", downloadsH.ListBinaryDownloads)
+	})
+
+	// Public: pre-auth download link
+	downloadsH := handlers.NewDownloadsHandler(s.db, s.cfg.DistDir)
+	r.Get("/dl/{token}", downloadsH.PreAuthDownload)
+
+	// User self-service (authenticated with sk-proxy-* token, not admin JWT)
+	userSelfH := handlers.NewUserSelfHandler(s.db, s.cfg.DistDir, s.enc)
+	r.Get("/api/user/me", userSelfH.Me)
+	r.Get("/api/user/usage", userSelfH.Usage)
+	r.Post("/api/user/rotate-token", userSelfH.RotateToken)
+	r.Get("/api/user/update", userSelfH.Update)
+	r.Post("/api/user/import-account", userSelfH.ImportAccount)
+	r.Get("/api/user/owned-account", userSelfH.OwnedAccount)
+	r.Get("/api/user/pool-status", userSelfH.PoolStatus)
+
+	// Anthropic proxy — also mounted on the admin port so users only need one URL.
+	// Any /v1/* request that isn't a defined admin API route hits the proxy.
+	proxyH := proxy.New(s.db, s.poolMgr, s.cfg.AnthropicURL, s.cfg.UserMaxRPM, s.cfg.RedisURL, s.cfg.PromptCacheInject, s.webhooks, s.logStream)
+	r.Handle("/v1/*", proxyH)
+
+	r.Get("/*", s.frontendHandler())
+
+	return r
+}
+
+func (s *Server) healthCheck() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Check DB
+		sqlDB, err := s.db.DB()
+		if err != nil || sqlDB.Ping() != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "reason": "db unavailable"})
+			return
+		}
+
+		// Count active accounts
+		var activeAccounts int64
+		s.db.Model(nil).Table("claude_accounts").Where("status = ?", "active").Count(&activeAccounts)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":          "ok",
+			"active_accounts": activeAccounts,
+		})
+	}
+}
+
+func (s *Server) frontendHandler() http.HandlerFunc {
+	if s.frontendFS == nil {
+		return func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "frontend not available", http.StatusNotFound)
+		}
+	}
+
+	fileServer := http.FileServer(http.FS(s.frontendFS))
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/" {
+			path = "index.html"
+		} else {
+			path = path[1:]
+		}
+
+		_, err := s.frontendFS.Open(path)
+		if err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// SPA fallback
+		index, err := fs.ReadFile(s.frontendFS, "index.html")
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(index)
+	}
+}
+
+func (s *Server) SetupProxyHandler() http.Handler {
+	r := chi.NewRouter()
+
+	// User self-service also accessible on the proxy port (for cl usage/update commands)
+	userSelfH := handlers.NewUserSelfHandler(s.db, s.cfg.DistDir, s.enc)
+	r.Get("/api/user/me", userSelfH.Me)
+	r.Get("/api/user/usage", userSelfH.Usage)
+	r.Post("/api/user/rotate-token", userSelfH.RotateToken)
+	r.Get("/api/user/update", userSelfH.Update)
+	r.Post("/api/user/import-account", userSelfH.ImportAccount)
+	r.Get("/api/user/owned-account", userSelfH.OwnedAccount)
+	r.Get("/api/user/pool-status", userSelfH.PoolStatus)
+
+	// Everything else → Anthropic proxy
+	proxyH := proxy.New(s.db, s.poolMgr, s.cfg.AnthropicURL, s.cfg.UserMaxRPM, s.cfg.RedisURL, s.cfg.PromptCacheInject, s.webhooks, s.logStream)
+	r.Handle("/*", proxyH)
+
+	return r
+}
+
+func (s *Server) Start() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	s.poolMgr.StartAutoReset(ctx, s.cfg.PoolResetInterval)
+	s.poolMgr.StartHealthCheck(ctx, s.cfg.HealthCheckInterval, s.cfg.AnthropicURL)
+
+	adminRouter := s.SetupAdminRouter()
+	proxyHandler := s.SetupProxyHandler()
+
+	errCh := make(chan error, 2)
+
+	go func() {
+		addr := fmt.Sprintf("0.0.0.0:%s", s.cfg.WebPort)
+		log.Printf("Admin UI listening on http://%s", addr)
+		if err := http.ListenAndServe(addr, adminRouter); err != nil {
+			errCh <- fmt.Errorf("admin server: %w", err)
+		}
+	}()
+
+	go func() {
+		addr := fmt.Sprintf("0.0.0.0:%s", s.cfg.ProxyPort)
+		log.Printf("Proxy listening on http://%s", addr)
+		if err := http.ListenAndServe(addr, proxyHandler); err != nil {
+			errCh <- fmt.Errorf("proxy server: %w", err)
+		}
+	}()
+
+	return <-errCh
+}

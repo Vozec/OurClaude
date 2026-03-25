@@ -1,0 +1,1496 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "OurClaude",
+    "description": "Multi-account Anthropic proxy API.\n\n*From each account according to its quota, to each user according to their needs.*\n\n## Authentication\n\n- **Admin routes** (`/api/admin/*`, `/api/auth/*`): JWT session cookie — obtain via `POST /api/auth/login`.\n- **User routes** (`/api/user/*`): Bearer token — `Authorization: Bearer sk-proxy-xxxx`.\n- **Public routes**: no auth required.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "", "description": "Current server" }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Admin authentication & TOTP" },
+    { "name": "User", "description": "User self-service — authenticated with sk-proxy-* token" },
+    { "name": "Users", "description": "Admin — user management" },
+    { "name": "Pools", "description": "Admin — pool management" },
+    { "name": "Accounts", "description": "Admin — Claude account management" },
+    { "name": "Stats", "description": "Admin — analytics & usage" },
+    { "name": "Conversations", "description": "Admin — conversation logs" },
+    { "name": "Webhooks", "description": "Admin — webhook management" },
+    { "name": "Invites", "description": "Admin — invite links" },
+    { "name": "Admins", "description": "Admin — admin account management" },
+    { "name": "Sessions", "description": "Admin — active session management" },
+    { "name": "Audit", "description": "Admin — audit log" },
+    { "name": "Aliases", "description": "Admin — model aliases" },
+    { "name": "Downloads", "description": "Binary distribution" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "UserToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "`sk-proxy-*` token assigned to the user"
+      },
+      "AdminCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session",
+        "description": "JWT session cookie — obtain via `POST /api/auth/login`"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string", "example": "invalid token" }
+        }
+      },
+      "Admin": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "username": { "type": "string" },
+          "role": { "type": "string", "enum": ["admin", "viewer"] },
+          "totp_enabled": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Pool": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "daily_token_quota": { "type": "integer", "description": "0 = unlimited" },
+          "monthly_token_quota": { "type": "integer", "description": "0 = unlimited" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Account": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "pool_id": { "type": "integer" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["active", "exhausted", "error"] },
+          "last_error": { "type": "string" },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "last_used_at": { "type": "string", "format": "date-time", "nullable": true },
+          "owner_user_id": { "type": "integer", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "api_token": { "type": "string", "example": "sk-proxy-abc123..." },
+          "pool_id": { "type": "integer", "nullable": true },
+          "pool": { "$ref": "#/components/schemas/Pool" },
+          "pools": { "type": "array", "items": { "$ref": "#/components/schemas/Pool" } },
+          "active": { "type": "boolean" },
+          "daily_token_quota": { "type": "integer" },
+          "monthly_token_quota": { "type": "integer" },
+          "monthly_budget_usd": { "type": "number" },
+          "allowed_models": { "type": "string", "description": "Comma-separated allowlist, empty = all" },
+          "ip_whitelist": { "type": "string", "description": "Comma-separated CIDR allowlist" },
+          "extra_headers": { "type": "string", "description": "JSON object of headers to inject" },
+          "token_expires_at": { "type": "string", "format": "date-time", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Webhook": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "url": { "type": "string" },
+          "events": { "type": "string", "example": "account.exhausted,account.error,quota.warning" },
+          "active": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Invite": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "token": { "type": "string" },
+          "label": { "type": "string" },
+          "pool_id": { "type": "integer", "nullable": true },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "used_at": { "type": "string", "format": "date-time", "nullable": true },
+          "used_by": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "UsageLog": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "user_id": { "type": "integer" },
+          "account_id": { "type": "integer" },
+          "user": {
+            "type": "object",
+            "properties": { "name": { "type": "string" } }
+          },
+          "model": { "type": "string" },
+          "input_tokens": { "type": "integer" },
+          "output_tokens": { "type": "integer" },
+          "cache_read": { "type": "integer" },
+          "cache_write": { "type": "integer" },
+          "endpoint": { "type": "string" },
+          "status_code": { "type": "integer" },
+          "latency_ms": { "type": "integer" },
+          "ttft_ms": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ModelAlias": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "alias": { "type": "string", "example": "gpt-4" },
+          "target": { "type": "string", "example": "claude-opus-4-5" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AdminSession": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "admin_id": { "type": "integer" },
+          "admin_username": { "type": "string" },
+          "ip": { "type": "string" },
+          "user_agent": { "type": "string" },
+          "last_used_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AuditEntry": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "admin_id": { "type": "integer" },
+          "admin_username": { "type": "string" },
+          "action": { "type": "string" },
+          "target": { "type": "string" },
+          "details": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PeriodStats": {
+        "type": "object",
+        "properties": {
+          "requests": { "type": "integer" },
+          "input_tokens": { "type": "integer" },
+          "output_tokens": { "type": "integer" },
+          "est_cost_usd": { "type": "number" }
+        }
+      },
+      "DownloadLink": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "token": { "type": "string" },
+          "label": { "type": "string" },
+          "platform": { "type": "string" },
+          "max_downloads": { "type": "integer" },
+          "downloads": { "type": "integer" },
+          "revoked": { "type": "boolean" },
+          "expires_at": { "type": "string", "format": "date-time", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login",
+        "description": "Authenticates an admin and sets a JWT session cookie.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string", "example": "admin" },
+                  "password": { "type": "string", "example": "strongpassword" },
+                  "totp_code": { "type": "string", "example": "123456", "description": "Required if TOTP is enabled" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful — sets `session` cookie",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "admin": { "$ref": "#/components/schemas/Admin" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Invalid credentials or TOTP code", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Logout",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Logged out" }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Current admin session",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Current admin info", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Admin" } } } },
+          "401": { "description": "Not authenticated" }
+        }
+      }
+    },
+    "/api/auth/totp/setup": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Generate TOTP secret",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": {
+            "description": "TOTP secret and QR URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "secret": { "type": "string" },
+                    "qr_url": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/totp/enable": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Enable TOTP",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "code": { "type": "string", "example": "123456" } } } } }
+        },
+        "responses": {
+          "200": { "description": "TOTP enabled" },
+          "400": { "description": "Invalid code" }
+        }
+      }
+    },
+    "/api/auth/totp/disable": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Disable TOTP",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "code": { "type": "string" } } } } }
+        },
+        "responses": {
+          "200": { "description": "TOTP disabled" }
+        }
+      }
+    },
+    "/api/auth/password": {
+      "put": {
+        "tags": ["Auth"],
+        "summary": "Change password",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["current_password", "new_password"],
+                "properties": {
+                  "current_password": { "type": "string" },
+                  "new_password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Password changed" },
+          "400": { "description": "Wrong current password" }
+        }
+      }
+    },
+    "/api/user/me": {
+      "get": {
+        "tags": ["User"],
+        "summary": "My profile & quota",
+        "security": [{ "UserToken": [] }],
+        "responses": {
+          "200": {
+            "description": "User profile with quota usage",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer" },
+                    "name": { "type": "string" },
+                    "pool": { "$ref": "#/components/schemas/Pool" },
+                    "active": { "type": "boolean" },
+                    "created_at": { "type": "string", "format": "date-time" },
+                    "quota": {
+                      "type": "object",
+                      "properties": {
+                        "daily_used": { "type": "integer" },
+                        "daily_limit": { "type": "integer" },
+                        "monthly_used": { "type": "integer" },
+                        "monthly_limit": { "type": "integer" },
+                        "monthly_budget": { "type": "number" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Invalid token" }
+        }
+      }
+    },
+    "/api/user/usage": {
+      "get": {
+        "tags": ["User"],
+        "summary": "My usage stats",
+        "security": [{ "UserToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Usage stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total_requests": { "type": "integer" },
+                    "total_input": { "type": "integer" },
+                    "total_output": { "type": "integer" },
+                    "last_7_days": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "day": { "type": "string", "example": "2026-03-25" },
+                          "total_requests": { "type": "integer" },
+                          "input_tokens": { "type": "integer" },
+                          "output_tokens": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/pool-status": {
+      "get": {
+        "tags": ["User"],
+        "summary": "Pool status + today/week usage",
+        "description": "Used by the `ourclaude` CLI dashboard.",
+        "security": [{ "UserToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Pool status, period stats, owned account info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pools": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "integer" },
+                          "name": { "type": "string" },
+                          "accounts": {
+                            "type": "object",
+                            "properties": {
+                              "active": { "type": "integer" },
+                              "exhausted": { "type": "integer" },
+                              "error": { "type": "integer" }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "today": { "$ref": "#/components/schemas/PeriodStats" },
+                    "week": { "$ref": "#/components/schemas/PeriodStats" },
+                    "owned_account": {
+                      "nullable": true,
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "integer" },
+                        "status": { "type": "string" },
+                        "expires_at": { "type": "string", "format": "date-time" },
+                        "last_error": { "type": "string" },
+                        "today": { "$ref": "#/components/schemas/PeriodStats" },
+                        "week": { "$ref": "#/components/schemas/PeriodStats" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/rotate-token": {
+      "post": {
+        "tags": ["User"],
+        "summary": "Rotate my API token",
+        "security": [{ "UserToken": [] }],
+        "responses": {
+          "200": {
+            "description": "New token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "api_token": { "type": "string", "example": "sk-proxy-abc123..." }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/import-account": {
+      "post": {
+        "tags": ["User"],
+        "summary": "Share my Claude account with the proxy",
+        "description": "Imports `~/.claude/.credentials.json` content and registers it as a personal account owned by this user. The proxy will keep local credentials in sync after token rotations.",
+        "security": [{ "UserToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["credentials_json"],
+                "properties": {
+                  "credentials_json": {
+                    "type": "string",
+                    "description": "Full content of ~/.claude/.credentials.json",
+                    "example": "{\"claudeAiOauth\":{\"accessToken\":\"sk-ant-oat01-...\",\"refreshToken\":\"sk-ant-oref01-...\",\"expiresAt\":1234567890000}}"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Account updated (already existed)" },
+          "201": { "description": "Account created" },
+          "400": { "description": "Invalid credentials format" }
+        }
+      }
+    },
+    "/api/user/owned-account": {
+      "get": {
+        "tags": ["User"],
+        "summary": "Get my account's current credentials",
+        "description": "Returns decrypted credentials in `~/.claude/.credentials.json` format. Used by `ourclaude` to sync local credentials after proxy token rotation.",
+        "security": [{ "UserToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Current credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "claudeAiOauth": {
+                      "type": "object",
+                      "properties": {
+                        "accessToken": { "type": "string" },
+                        "refreshToken": { "type": "string" },
+                        "expiresAt": { "type": "integer", "description": "Unix milliseconds" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "No owned account" }
+        }
+      }
+    },
+    "/api/user/update": {
+      "get": {
+        "tags": ["User"],
+        "summary": "Download ourclaude binary",
+        "description": "Returns a binary patched with this user's proxy token embedded as the default credential.",
+        "security": [{ "UserToken": [] }],
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "enum": ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"] }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Binary file (application/octet-stream)" },
+          "404": { "description": "Binary not available for this platform" }
+        }
+      }
+    },
+    "/api/invite/use": {
+      "post": {
+        "tags": ["Invites"],
+        "summary": "Use an invite link",
+        "description": "Creates a user account from an invite token.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "name"],
+                "properties": {
+                  "token": { "type": "string" },
+                  "name": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Account created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "api_token": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid or expired invite" }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "List users",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "User list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/User" } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Users"],
+        "summary": "Create user",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "pool_id": { "type": "integer" },
+                  "pool_ids": { "type": "array", "items": { "type": "integer" } },
+                  "daily_token_quota": { "type": "integer" },
+                  "monthly_token_quota": { "type": "integer" },
+                  "monthly_budget_usd": { "type": "number" },
+                  "allowed_models": { "type": "string" },
+                  "ip_whitelist": { "type": "string" },
+                  "extra_headers": { "type": "string" },
+                  "token_expires_at": { "type": "string", "format": "date-time" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "User created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } }
+        }
+      }
+    },
+    "/api/admin/users/{id}": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Get user",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "User", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } },
+          "404": { "description": "Not found" }
+        }
+      },
+      "put": {
+        "tags": ["Users"],
+        "summary": "Update user",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "pool_id": { "type": "integer", "nullable": true },
+                  "pool_ids": { "type": "array", "items": { "type": "integer" } },
+                  "active": { "type": "boolean" },
+                  "daily_token_quota": { "type": "integer" },
+                  "monthly_token_quota": { "type": "integer" },
+                  "monthly_budget_usd": { "type": "number" },
+                  "allowed_models": { "type": "string" },
+                  "ip_whitelist": { "type": "string" },
+                  "extra_headers": { "type": "string" },
+                  "token_expires_at": { "type": "string", "format": "date-time", "nullable": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated user", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } }
+        }
+      },
+      "delete": {
+        "tags": ["Users"],
+        "summary": "Delete user",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "204": { "description": "Deleted" }
+        }
+      }
+    },
+    "/api/admin/users/{id}/rotate-token": {
+      "post": {
+        "tags": ["Users"],
+        "summary": "Rotate user token",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": {
+            "description": "New token",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "api_token": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/api/admin/pools": {
+      "get": {
+        "tags": ["Pools"],
+        "summary": "List pools",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Pool list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Pool" } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Pools"],
+        "summary": "Create pool",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "description": { "type": "string" },
+                  "daily_token_quota": { "type": "integer" },
+                  "monthly_token_quota": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Pool created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pool" } } } }
+        }
+      }
+    },
+    "/api/admin/pools/{id}": {
+      "get": {
+        "tags": ["Pools"],
+        "summary": "Get pool",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Pool", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pool" } } } }
+        }
+      },
+      "put": {
+        "tags": ["Pools"],
+        "summary": "Update pool",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "description": { "type": "string" },
+                  "daily_token_quota": { "type": "integer" },
+                  "monthly_token_quota": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated pool" }
+        }
+      },
+      "delete": {
+        "tags": ["Pools"],
+        "summary": "Delete pool",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "204": { "description": "Deleted" }
+        }
+      }
+    },
+    "/api/admin/pools/{id}/reset": {
+      "post": {
+        "tags": ["Pools"],
+        "summary": "Reset exhausted accounts",
+        "description": "Sets all `exhausted` accounts in this pool back to `active`.",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Reset done" }
+        }
+      }
+    },
+    "/api/admin/pools/{id}/stats": {
+      "get": {
+        "tags": ["Pools"],
+        "summary": "Pool stats",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": {
+            "description": "Pool stats by period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pool": { "$ref": "#/components/schemas/Pool" },
+                    "today": { "$ref": "#/components/schemas/PeriodStats" },
+                    "week": { "$ref": "#/components/schemas/PeriodStats" },
+                    "month": { "$ref": "#/components/schemas/PeriodStats" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/pools/{id}/users": {
+      "get": {
+        "tags": ["Pools"],
+        "summary": "Users assigned to pool",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "User list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/User" } } } } }
+        }
+      }
+    },
+    "/api/admin/accounts": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "List Claude accounts",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Account list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Accounts"],
+        "summary": "Add Claude account",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "pool_id", "credentials_json"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "pool_id": { "type": "integer" },
+                  "credentials_json": { "type": "string", "description": "Content of ~/.claude/.credentials.json" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Account created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } }
+        }
+      }
+    },
+    "/api/admin/accounts/{id}": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "Get account",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Account", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } }
+        }
+      },
+      "put": {
+        "tags": ["Accounts"],
+        "summary": "Update account",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "pool_id": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated account" }
+        }
+      },
+      "delete": {
+        "tags": ["Accounts"],
+        "summary": "Delete account",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "204": { "description": "Deleted" }
+        }
+      }
+    },
+    "/api/admin/accounts/{id}/refresh": {
+      "post": {
+        "tags": ["Accounts"],
+        "summary": "Force OAuth token refresh",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Refreshed", "content": { "application/json": { "schema": { "type": "object", "properties": { "expires_at": { "type": "string", "format": "date-time" } } } } } }
+        }
+      }
+    },
+    "/api/admin/accounts/{id}/reset": {
+      "post": {
+        "tags": ["Accounts"],
+        "summary": "Reset account to active",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Reset to active" }
+        }
+      }
+    },
+    "/api/admin/accounts/{id}/test": {
+      "post": {
+        "tags": ["Accounts"],
+        "summary": "Test account connectivity",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": {
+            "description": "Test result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "status_code": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/accounts/{id}/stats": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "Account usage stats",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": {
+            "description": "Usage by period",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "today": { "$ref": "#/components/schemas/PeriodStats" },
+                    "week": { "$ref": "#/components/schemas/PeriodStats" },
+                    "total": { "$ref": "#/components/schemas/PeriodStats" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/stats/overview": {
+      "get": {
+        "tags": ["Stats"],
+        "summary": "Overview stats",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": {
+            "description": "Global counters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total_requests": { "type": "integer" },
+                    "total_input": { "type": "integer" },
+                    "total_output": { "type": "integer" },
+                    "total_cache_read": { "type": "integer" },
+                    "total_cache_write": { "type": "integer" },
+                    "estimated_cost": { "type": "number" },
+                    "active_users": { "type": "integer" },
+                    "total_users": { "type": "integer" },
+                    "account_statuses": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "status": { "type": "string" },
+                          "count": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/stats/usage": {
+      "get": {
+        "tags": ["Stats"],
+        "summary": "Paginated usage logs",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } },
+          { "name": "user_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "model", "in": "query", "schema": { "type": "string" } },
+          { "name": "status_class", "in": "query", "schema": { "type": "string", "enum": ["2xx", "4xx", "5xx"] } },
+          { "name": "endpoint", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated logs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": { "type": "integer" },
+                    "page": { "type": "integer" },
+                    "limit": { "type": "integer" },
+                    "logs": { "type": "array", "items": { "$ref": "#/components/schemas/UsageLog" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/stats/by-user": {
+      "get": {
+        "tags": ["Stats"],
+        "summary": "Usage aggregated by user",
+        "security": [{ "AdminCookie": [] }],
+        "responses": { "200": { "description": "Per-user stats" } }
+      }
+    },
+    "/api/admin/stats/by-day": {
+      "get": {
+        "tags": ["Stats"],
+        "summary": "Usage aggregated by day (last 30 days)",
+        "security": [{ "AdminCookie": [] }],
+        "responses": { "200": { "description": "Daily stats" } }
+      }
+    },
+    "/api/admin/stats/by-model": {
+      "get": {
+        "tags": ["Stats"],
+        "summary": "Usage aggregated by model",
+        "security": [{ "AdminCookie": [] }],
+        "responses": { "200": { "description": "Per-model stats" } }
+      }
+    },
+    "/api/admin/stats/latency": {
+      "get": {
+        "tags": ["Stats"],
+        "summary": "Latency percentiles by model",
+        "security": [{ "AdminCookie": [] }],
+        "responses": { "200": { "description": "p50/p95/p99 per model" } }
+      }
+    },
+    "/api/admin/stats/export": {
+      "get": {
+        "tags": ["Stats"],
+        "summary": "Export usage logs as CSV",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [
+          { "name": "user_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "CSV file" }
+        }
+      }
+    },
+    "/api/admin/conversations": {
+      "get": {
+        "tags": ["Conversations"],
+        "summary": "List conversations",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "user_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Paginated conversation list" } }
+      }
+    },
+    "/api/admin/conversations/{id}": {
+      "get": {
+        "tags": ["Conversations"],
+        "summary": "Get conversation detail",
+        "description": "Returns full messages array and assistant response.",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Conversation detail with messages" } }
+      }
+    },
+    "/api/admin/conversations/export": {
+      "get": {
+        "tags": ["Conversations"],
+        "summary": "Export all conversations as JSON",
+        "security": [{ "AdminCookie": [] }],
+        "responses": { "200": { "description": "JSON export" } }
+      }
+    },
+    "/api/admin/webhooks": {
+      "get": {
+        "tags": ["Webhooks"],
+        "summary": "List webhooks",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Webhook list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Webhook" } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Create webhook",
+        "description": "Discord URLs are automatically detected and formatted as embeds.",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["url", "events"],
+                "properties": {
+                  "url": { "type": "string", "example": "https://hooks.slack.com/..." },
+                  "events": { "type": "string", "example": "account.exhausted,account.error,quota.warning" },
+                  "secret": { "type": "string", "description": "HMAC secret for X-Signature header" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Webhook" } } } }
+        }
+      }
+    },
+    "/api/admin/webhooks/{id}": {
+      "put": {
+        "tags": ["Webhooks"],
+        "summary": "Update webhook",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": { "type": "string" },
+                  "events": { "type": "string" },
+                  "active": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "delete": {
+        "tags": ["Webhooks"],
+        "summary": "Delete webhook",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/api/admin/webhooks/{id}/test": {
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "Test webhook",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Test fired" } }
+      }
+    },
+    "/api/admin/invites": {
+      "get": {
+        "tags": ["Invites"],
+        "summary": "List invites",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Invite list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Invite" } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Invites"],
+        "summary": "Create invite link",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": { "type": "string" },
+                  "pool_id": { "type": "integer" },
+                  "expires_in_hours": { "type": "integer", "default": 72 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Invite created" }
+        }
+      }
+    },
+    "/api/admin/invites/{id}": {
+      "delete": {
+        "tags": ["Invites"],
+        "summary": "Delete invite",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/api/admin/admins": {
+      "get": {
+        "tags": ["Admins"],
+        "summary": "List admin accounts",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Admin list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Admin" } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Admins"],
+        "summary": "Create admin account",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string" },
+                  "role": { "type": "string", "enum": ["admin", "viewer"], "default": "admin" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Admin created" }
+        }
+      }
+    },
+    "/api/admin/admins/{id}": {
+      "put": {
+        "tags": ["Admins"],
+        "summary": "Update admin",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": { "type": "string" },
+                  "role": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "delete": {
+        "tags": ["Admins"],
+        "summary": "Delete admin",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/api/admin/sessions": {
+      "get": {
+        "tags": ["Sessions"],
+        "summary": "List active admin sessions",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Session list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/AdminSession" } } } } }
+        }
+      }
+    },
+    "/api/admin/sessions/{id}": {
+      "delete": {
+        "tags": ["Sessions"],
+        "summary": "Revoke session",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "204": { "description": "Revoked" } }
+      }
+    },
+    "/api/admin/audit": {
+      "get": {
+        "tags": ["Audit"],
+        "summary": "Admin audit log",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "admin_id", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated audit entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": { "type": "integer" },
+                    "page": { "type": "integer" },
+                    "limit": { "type": "integer" },
+                    "logs": { "type": "array", "items": { "$ref": "#/components/schemas/AuditEntry" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/model-aliases": {
+      "get": {
+        "tags": ["Aliases"],
+        "summary": "List model aliases",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Alias list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ModelAlias" } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Aliases"],
+        "summary": "Create model alias",
+        "description": "e.g. map `gpt-4` → `claude-opus-4-5`",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["alias", "target"],
+                "properties": {
+                  "alias": { "type": "string", "example": "gpt-4" },
+                  "target": { "type": "string", "example": "claude-opus-4-5" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelAlias" } } } }
+        }
+      }
+    },
+    "/api/admin/model-aliases/{id}": {
+      "delete": {
+        "tags": ["Aliases"],
+        "summary": "Delete model alias",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/api/downloads": {
+      "get": {
+        "tags": ["Downloads"],
+        "summary": "List available platforms",
+        "security": [{ "AdminCookie": [] }],
+        "responses": { "200": { "description": "Platform list with availability" } }
+      }
+    },
+    "/api/downloads/{platform}": {
+      "get": {
+        "tags": ["Downloads"],
+        "summary": "Download binary (admin)",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "platform", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Binary file" } }
+      }
+    },
+    "/api/admin/download-links": {
+      "get": {
+        "tags": ["Downloads"],
+        "summary": "List pre-auth download links",
+        "security": [{ "AdminCookie": [] }],
+        "responses": {
+          "200": { "description": "Link list", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/DownloadLink" } } } } }
+        }
+      },
+      "post": {
+        "tags": ["Downloads"],
+        "summary": "Create download link",
+        "description": "Generates a shareable link — no auth required to download.",
+        "security": [{ "AdminCookie": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["platform"],
+                "properties": {
+                  "label": { "type": "string" },
+                  "platform": { "type": "string" },
+                  "max_downloads": { "type": "integer" },
+                  "expires_at": { "type": "string", "format": "date-time" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Link created" } }
+      }
+    },
+    "/api/admin/download-links/{id}/revoke": {
+      "post": {
+        "tags": ["Downloads"],
+        "summary": "Revoke download link",
+        "security": [{ "AdminCookie": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Revoked" } }
+      }
+    },
+    "/api/admin/binary-downloads": {
+      "get": {
+        "tags": ["Downloads"],
+        "summary": "List ourclaude binary download history",
+        "security": [{ "AdminCookie": [] }],
+        "responses": { "200": { "description": "Download history with user and platform info" } }
+      }
+    },
+    "/dl/{token}": {
+      "get": {
+        "tags": ["Downloads"],
+        "summary": "Pre-auth binary download",
+        "description": "Public endpoint — no authentication required. Token is generated by the admin.",
+        "parameters": [{ "name": "token", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Binary file" },
+          "404": { "description": "Invalid or expired token" }
+        }
+      }
+    }
+  }
+}
