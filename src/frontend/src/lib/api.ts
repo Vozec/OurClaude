@@ -1,9 +1,23 @@
 const BASE = '/api'
 
+function getCookie(name: string): string {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))
+  return match ? match[2] : ''
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (body) {
+    headers['Content-Type'] = 'application/json'
+  }
+  const csrfToken = getCookie('csrf_token')
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken
+  }
+
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
     credentials: 'include',
   })
@@ -82,7 +96,7 @@ export const usersApi = {
 // Pools
 export const poolsApi = {
   list:   () => get<Pool[]>('/admin/pools'),
-  create: (body: { name: string; description?: string; daily_token_quota?: number; monthly_token_quota?: number }) => post<Pool>('/admin/pools', body),
+  create: (body: { name: string; description?: string; daily_token_quota?: number; monthly_token_quota?: number; allowed_models?: string }) => post<Pool>('/admin/pools', body),
   update: (id: number, body: Partial<{ name: string; description: string; daily_token_quota: number; monthly_token_quota: number }>) =>
             put<Pool>(`/admin/pools/${id}`, body),
   delete: (id: number) => del(`/admin/pools/${id}`),
@@ -156,6 +170,12 @@ export const webhooksApi = {
   delete: (id: number) => del(`/admin/webhooks/${id}`),
 }
 
+// Runtime Settings
+export const settingsApi = {
+  list:   () => get<Record<string, string>>('/admin/settings'),
+  update: (body: Record<string, string>) => put<Record<string, string>>('/admin/settings', body),
+}
+
 // Invites
 export const invitesApi = {
   list:   () => get<Invite[]>('/admin/invites'),
@@ -207,6 +227,24 @@ export const sessionsApi = {
   revoke: (id: number) => del(`/admin/sessions/${id}`),
 }
 
+// Teams
+export const teamsApi = {
+  list:   () => get<Team[]>('/admin/teams'),
+  create: (body: { name: string; monthly_budget_usd?: number; monthly_token_quota?: number }) =>
+            post<Team>('/admin/teams', body),
+  update: (id: number, body: Partial<{ name: string; monthly_budget_usd: number; monthly_token_quota: number }>) =>
+            put<Team>(`/admin/teams/${id}`, body),
+  delete: (id: number) => del(`/admin/teams/${id}`),
+}
+
+// MCP Servers
+export const mcpApi = {
+  list:   () => get<MCPServerConfig[]>('/admin/mcp-servers'),
+  create: (body: { name: string; command: string; args?: string; env?: string }) =>
+            post<MCPServerConfig>('/admin/mcp-servers', body),
+  delete: (id: number) => del(`/admin/mcp-servers/${id}`),
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface Admin {
@@ -224,6 +262,7 @@ export interface Pool {
   created_at: string
   daily_token_quota: number
   monthly_token_quota: number
+  allowed_models?: string
   accounts?: Account[]
 }
 
@@ -285,7 +324,11 @@ export interface OverviewStats {
   total_output: number
   total_cache_read: number
   total_cache_write: number
+  cache_read_tokens: number
+  cache_write_tokens: number
   estimated_cost: number
+  daily_burn_rate_usd: number
+  projected_monthly_usd: number
   active_users: number
   total_users: number
   account_statuses: Array<{ status: string; count: number }>
@@ -449,6 +492,23 @@ export interface UserBinaryDownload {
   platform: string
   binary_key: string
   downloaded_at: string
+}
+
+export interface Team {
+  id: number
+  name: string
+  monthly_budget_usd: number
+  monthly_token_quota: number
+  created_at: string
+}
+
+export interface MCPServerConfig {
+  id: number
+  name: string
+  command: string
+  args: string
+  env: string
+  created_at: string
 }
 
 export interface PeriodStats {

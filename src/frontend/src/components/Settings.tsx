@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { QRCodeSVG } from 'qrcode.react'
-import { authApi } from '../lib/api'
+import { authApi, settingsApi } from '../lib/api'
+import { CheckCircle } from 'lucide-react'
 
 function QRDisplay({ url }: { url: string }) {
   return (
@@ -224,13 +225,106 @@ function DarkModeSection() {
   )
 }
 
+function SystemConfigSection() {
+  const qc = useQueryClient()
+  const { data: settings, isLoading } = useQuery({ queryKey: ['settings'], queryFn: settingsApi.list })
+  const [local, setLocal] = useState<Record<string, string>>({})
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (settings) setLocal(settings)
+  }, [settings])
+
+  const mutation = useMutation({
+    mutationFn: () => settingsApi.update(local),
+    onSuccess: (data) => {
+      qc.setQueryData(['settings'], data)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    },
+  })
+
+  const set = (key: string, value: string) => setLocal(prev => ({ ...prev, [key]: value }))
+
+  if (isLoading) return <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">System Configuration</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Runtime settings — changes apply immediately, no restart needed.</p>
+        </div>
+        <button
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+          className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm hover:bg-brand-600 disabled:opacity-50"
+        >
+          {saved ? <><CheckCircle className="w-4 h-4" /> Saved</> : mutation.isPending ? 'Saving...' : 'Save'}
+        </button>
+      </div>
+      <div className="space-y-5">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">System Prompt Injection</label>
+          <textarea
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-sm h-24 resize-none dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+            value={local.system_prompt_inject ?? ''}
+            onChange={e => set('system_prompt_inject', e.target.value)}
+            placeholder="Prepended to system prompt on every proxy request..."
+          />
+          <p className="mt-1 text-xs text-gray-400">Leave empty to disable. Injected before the user's system prompt.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prompt Cache Injection</label>
+            <button
+              onClick={() => set('prompt_cache_inject', local.prompt_cache_inject === 'true' ? 'false' : 'true')}
+              className={`w-full px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                local.prompt_cache_inject === 'true'
+                  ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                  : 'border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400'
+              }`}
+            >
+              {local.prompt_cache_inject === 'true' ? 'Enabled' : 'Disabled'}
+            </button>
+            <p className="mt-1 text-xs text-gray-400">Auto-inject cache_control on long prompts</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Response Cache TTL (seconds)</label>
+            <input
+              type="number"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
+              value={local.response_cache_ttl ?? '0'}
+              onChange={e => set('response_cache_ttl', e.target.value)}
+              min={0}
+            />
+            <p className="mt-1 text-xs text-gray-400">0 = disabled. Caches identical non-streaming requests.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rate Limit (RPM per user)</label>
+            <input
+              type="number"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
+              value={local.user_max_rpm ?? '0'}
+              onChange={e => set('user_max_rpm', e.target.value)}
+              min={0}
+            />
+            <p className="mt-1 text-xs text-gray-400">0 = unlimited. Max requests per minute per user.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Settings() {
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">Manage your account security.</p>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">Manage security and system configuration.</p>
       </div>
+      <SystemConfigSection />
       <DarkModeSection />
       <TOTPSection />
       <PasswordSection />

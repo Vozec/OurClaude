@@ -53,6 +53,7 @@ function buildModelDayData(rows: ModelDayStat[], topModels: string[]) {
 
 export default function Analytics() {
   const [tab, setTab] = useState<Tab>('tokens')
+  const [days, setDays] = useState(30)
   const qc = useQueryClient()
 
   useEffect(() => {
@@ -73,8 +74,8 @@ export default function Analytics() {
   const { data: byModel }      = useQuery({ queryKey: ['stats', 'by-model'],      queryFn: statsApi.byModel })
   const { data: latency }      = useQuery({ queryKey: ['stats', 'latency'],       queryFn: statsApi.latency })
   const { data: byModelDay }   = useQuery({ queryKey: ['stats', 'by-model-day'],  queryFn: statsApi.byModelDay })
-  const { data: heatmapData }  = useQuery({ queryKey: ['stats', 'heatmap'],       queryFn: () => statsApi.heatmap() })
-  const { data: sessionData }  = useQuery({ queryKey: ['stats', 'sessions'],      queryFn: () => statsApi.sessions() })
+  const { data: heatmapData }  = useQuery({ queryKey: ['stats', 'heatmap', days],  queryFn: () => statsApi.heatmap(days) })
+  const { data: sessionData }  = useQuery({ queryKey: ['stats', 'sessions', days], queryFn: () => statsApi.sessions(days * 24) })
 
   const totalCost = byModel?.reduce((s, m) => s + (m.estimated_cost_usd ?? 0), 0) ?? 0
 
@@ -109,6 +110,16 @@ export default function Analytics() {
           <p className="text-gray-500 dark:text-gray-400 mt-1">Token usage across users and models.</p>
         </div>
         <div className="flex items-center gap-3">
+          <select
+            value={days}
+            onChange={e => setDays(Number(e.target.value))}
+            className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </select>
           {totalCost > 0 && (
             <div className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-sm">
               <span className="text-amber-600 font-medium">Est. total cost: </span>
@@ -158,7 +169,7 @@ export default function Analytics() {
       {/* Evolution charts — tabbed */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="flex items-center justify-between px-6 pt-5 pb-0">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Evolution — last 30 days</h2>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Evolution — last {days} days</h2>
           <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 text-xs">
             {(['tokens', 'requests', 'cost'] as Tab[]).map(t => (
               <button
@@ -225,7 +236,7 @@ export default function Analytics() {
       {/* Model trends over time */}
       {modelDayBarData.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Model Trends — last 30 days</h2>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Model Trends — last {days} days</h2>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={modelDayBarData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -331,7 +342,7 @@ export default function Analytics() {
 
       {/* Activity heatmap */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Activity Heatmap — last 30 days</h2>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Activity Heatmap — last {days} days</h2>
         {heatmapData && heatmapData.length > 0 ? (
           <div className="overflow-x-auto">
             <div className="min-w-[560px]">
@@ -385,7 +396,7 @@ export default function Analytics() {
       {sessionData && sessionData.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Session Analytics — last 7 days</h2>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Session Analytics — last {days} days</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Sessions detected by 30-minute inactivity gaps</p>
           </div>
           <div className="overflow-x-auto">

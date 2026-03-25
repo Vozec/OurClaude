@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"claude-proxy/internal/crypto"
@@ -21,6 +22,7 @@ type Refresher struct {
 	client     *http.Client
 	refreshURL string
 	enc        *crypto.Encryptor
+	refreshMu  sync.Map // map[uint]*sync.Mutex
 }
 
 func New(refreshURL string, enc *crypto.Encryptor) *Refresher {
@@ -126,5 +128,20 @@ func (r *Refresher) EnsureValid(db *gorm.DB, account *database.ClaudeAccount) er
 	if time.Until(account.ExpiresAt) > 5*time.Minute {
 		return nil
 	}
+
+	// Per-account lock to prevent concurrent refresh
+	val, _ := r.refreshMu.LoadOrStore(account.ID, &sync.Mutex{})
+	mu := val.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Re-check after acquiring lock (another goroutine may have refreshed)
+	if err := db.First(account, account.ID).Error; err != nil {
+		return err
+	}
+	if time.Until(account.ExpiresAt) > 5*time.Minute {
+		return nil
+	}
+
 	return r.RefreshToken(db, account)
 }

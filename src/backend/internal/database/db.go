@@ -40,7 +40,9 @@ func New(dbType, path, dsn string) (*gorm.DB, error) {
 		}
 		db.Exec("PRAGMA journal_mode=WAL")
 		db.Exec("PRAGMA busy_timeout=5000")
-		sqlDB.SetMaxOpenConns(1)
+		// WAL supports concurrent readers
+		sqlDB.SetMaxOpenConns(10)
+		sqlDB.SetMaxIdleConns(2)
 	}
 
 	err = db.AutoMigrate(
@@ -61,6 +63,9 @@ func New(dbType, path, dsn string) (*gorm.DB, error) {
 		&UserPool{},
 		&InvitePool{},
 		&SetupToken{},
+		&Team{},
+		&MCPServer{},
+		&Setting{},
 	)
 	if err != nil {
 		return nil, err

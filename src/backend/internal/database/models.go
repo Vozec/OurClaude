@@ -18,6 +18,7 @@ type Pool struct {
 	Description       string          `json:"description"`
 	DailyTokenQuota   int             `gorm:"default:0" json:"daily_token_quota"`   // 0 = unlimited
 	MonthlyTokenQuota int             `gorm:"default:0" json:"monthly_token_quota"` // 0 = unlimited
+	AllowedModels     string          `json:"allowed_models"`                       // comma-separated, empty = all
 	CreatedAt         time.Time       `json:"created_at"`
 	Accounts          []ClaudeAccount `gorm:"many2many:account_pools;joinForeignKey:PoolID;joinReferences:AccountID" json:"accounts,omitempty"`
 }
@@ -50,6 +51,8 @@ type User struct {
 	AllowedModels     string     `json:"allowed_models"`   // comma-separated, empty = all
 	IPWhitelist       string     `json:"ip_whitelist"`     // comma-separated CIDRs, empty = all
 	ExtraHeaders      string     `json:"extra_headers"`    // JSON map injected into upstream requests
+	TeamID            *uint      `gorm:"index" json:"team_id,omitempty"`
+	Team              *Team      `gorm:"foreignKey:TeamID" json:"team,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 }
 
@@ -190,4 +193,28 @@ type SetupToken struct {
 	User      *User     `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Team struct {
+	ID                uint      `gorm:"primarykey" json:"id"`
+	Name              string    `gorm:"uniqueIndex;not null" json:"name"`
+	MonthlyBudgetUSD  float64   `gorm:"default:0" json:"monthly_budget_usd"`
+	MonthlyTokenQuota int       `gorm:"default:0" json:"monthly_token_quota"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+type MCPServer struct {
+	ID        uint      `gorm:"primarykey" json:"id"`
+	Name      string    `gorm:"uniqueIndex;not null" json:"name"`
+	Command   string    `gorm:"not null" json:"command"`
+	Args      string    `json:"args"` // JSON array
+	Env       string    `json:"env"`  // JSON object
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Setting stores runtime-editable configuration (DB-backed, no restart needed).
+type Setting struct {
+	Key       string    `gorm:"primarykey" json:"key"`
+	Value     string    `gorm:"not null" json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

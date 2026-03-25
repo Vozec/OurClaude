@@ -512,6 +512,17 @@ func formatTokens(n int64) string {
 }
 
 // syncOwnedAccount silently fetches the current credentials from the proxy
+// isProxyReachable checks if the proxy server responds within 3 seconds.
+func isProxyReachable(cfg *Config) bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(cfg.ServerURL + "/healthz")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 // and updates ~/.claude/.credentials.json if they differ. This keeps the
 // owner's local Claude CLI in sync after proxy token rotations.
 func syncOwnedAccount(cfg *Config) {
@@ -563,12 +574,24 @@ func runClaude(args []string) {
 		os.Exit(1)
 	}
 
-	// Silently sync owned account credentials before launching claude
-	syncOwnedAccount(cfg)
+	// Check proxy reachability
+	proxyOnline := isProxyReachable(cfg)
+
+	if proxyOnline {
+		// Silently sync owned account credentials before launching claude
+		syncOwnedAccount(cfg)
+	} else {
+		fmt.Fprintln(os.Stderr, "\033[33m⚠ Proxy unreachable — falling back to local credentials\033[0m")
+	}
 
 	// Show dashboard when launched with no arguments
 	if args == nil {
-		printDashboard(cfg)
+		if proxyOnline {
+			printDashboard(cfg)
+		} else {
+			fmt.Println("  Proxy offline. Using local Claude credentials.")
+			fmt.Println()
+		}
 	}
 
 	claudeBin, err := exec.LookPath("claude")
@@ -588,7 +611,12 @@ func runClaude(args []string) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = buildEnv(cfg)
+	if proxyOnline {
+		cmd.Env = buildEnv(cfg)
+	} else {
+		// Offline: don't set proxy env vars, let Claude use local credentials
+		cmd.Env = os.Environ()
+	}
 
 	// Forward signals to the child so Ctrl+C / SIGTERM reach Claude directly.
 	sigCh := make(chan os.Signal, 1)

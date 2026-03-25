@@ -36,6 +36,7 @@ func (h *PoolsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Description       string `json:"description"`
 		DailyTokenQuota   int    `json:"daily_token_quota"`
 		MonthlyTokenQuota int    `json:"monthly_token_quota"`
+		AllowedModels     string `json:"allowed_models"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
@@ -52,6 +53,7 @@ func (h *PoolsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Description:       req.Description,
 		DailyTokenQuota:   req.DailyTokenQuota,
 		MonthlyTokenQuota: req.MonthlyTokenQuota,
+		AllowedModels:     req.AllowedModels,
 	}
 
 	if err := h.db.Create(&p).Error; err != nil {
@@ -89,10 +91,11 @@ func (h *PoolsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name              string `json:"name"`
-		Description       string `json:"description"`
-		DailyTokenQuota   *int   `json:"daily_token_quota"`
-		MonthlyTokenQuota *int   `json:"monthly_token_quota"`
+		Name              string  `json:"name"`
+		Description       string  `json:"description"`
+		DailyTokenQuota   *int    `json:"daily_token_quota"`
+		MonthlyTokenQuota *int    `json:"monthly_token_quota"`
+		AllowedModels     *string `json:"allowed_models"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
@@ -117,6 +120,9 @@ func (h *PoolsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MonthlyTokenQuota != nil {
 		updates["monthly_token_quota"] = *req.MonthlyTokenQuota
+	}
+	if req.AllowedModels != nil {
+		updates["allowed_models"] = *req.AllowedModels
 	}
 
 	if err := h.db.Model(&p).Updates(updates).Error; err != nil {

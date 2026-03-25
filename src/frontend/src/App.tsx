@@ -21,6 +21,8 @@ import Sessions from './components/Sessions'
 import InviteUse from './components/InviteUse'
 import PoolDetail from './components/PoolDetail'
 import SetupLink from './components/SetupLink'
+import Teams from './components/Teams'
+import MCPServers from './components/MCPServers'
 
 class ErrorBoundary extends Component<{children: ReactNode}, {error: Error | null}> {
   state = { error: null as Error | null }
@@ -96,6 +98,8 @@ function PrivateRoutes() {
           <Route path="/downloads" element={<Downloads />} />
           <Route path="/aliases"  element={<ModelAliases />} />
           <Route path="/sessions" element={<Sessions />} />
+          <Route path="/teams" element={<Teams />} />
+          <Route path="/mcp-servers" element={<MCPServers />} />
         </Routes>
       </Layout>
     </ErrorBoundary>

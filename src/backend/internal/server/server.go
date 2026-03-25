@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"claude-proxy/internal/config"
 	"claude-proxy/internal/crypto"
@@ -19,6 +20,7 @@ import (
 	"claude-proxy/internal/oauth"
 	"claude-proxy/internal/pool"
 	"claude-proxy/internal/proxy"
+	"claude-proxy/internal/settings"
 	"claude-proxy/internal/sse"
 	"claude-proxy/internal/webhook"
 
@@ -38,6 +40,7 @@ type Server struct {
 	webhooks    *webhook.Dispatcher
 	logStream   *sse.Broadcaster
 	statsStream *sse.Broadcaster
+	settings    *settings.Service
 	frontendFS  fs.FS
 }
 
@@ -46,6 +49,14 @@ func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
 	oauthRefresher := oauth.New(cfg.OAuthRefreshURL, enc)
 	webhooks := webhook.New(db)
 	poolMgr := pool.New(db, oauthRefresher, enc, webhooks)
+
+	settingsSvc := settings.New(db)
+	settingsSvc.SeedDefaults(map[string]string{
+		"system_prompt_inject": cfg.SystemPromptInject,
+		"prompt_cache_inject":  fmt.Sprintf("%v", cfg.PromptCacheInject),
+		"response_cache_ttl":   fmt.Sprintf("%d", int(cfg.ResponseCacheTTL.Seconds())),
+		"user_max_rpm":         fmt.Sprintf("%d", cfg.UserMaxRPM),
+	})
 
 	return &Server{
 		cfg:         cfg,
@@ -56,6 +67,7 @@ func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
 		webhooks:    webhooks,
 		logStream:   sse.New(),
 		statsStream: sse.New(),
+		settings:    settingsSvc,
 		frontendFS:  frontendFS,
 	}
 }
@@ -72,10 +84,11 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   origins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+	r.Use(middleware.CSRFProtect)
 
 	// Health check + Prometheus metrics (public)
 	r.Get("/healthz", s.healthCheck())
@@ -128,6 +141,13 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Post("/api/admin/pools/{id}/reset", poolsH.Reset)
 		r.Get("/api/admin/pools/{id}/stats", poolsH.Stats)
 		r.Get("/api/admin/pools/{id}/users", poolsH.Users)
+
+		// Teams
+		teamsH := handlers.NewTeamsHandler(s.db)
+		r.Get("/api/admin/teams", teamsH.List)
+		r.Post("/api/admin/teams", teamsH.Create)
+		r.Put("/api/admin/teams/{id}", teamsH.Update)
+		r.Delete("/api/admin/teams/{id}", teamsH.Delete)
 
 		// Accounts
 		accountsH := handlers.NewAccountsHandler(s.db, s.enc, s.oauth, s.poolMgr, s.cfg)
@@ -197,6 +217,11 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Get("/api/admin/sessions", sessionsH.List)
 		r.Delete("/api/admin/sessions/{id}", sessionsH.Revoke)
 
+		// Runtime settings
+		settingsH := handlers.NewSettingsHandler(s.settings)
+		r.Get("/api/admin/settings", settingsH.List)
+		r.Put("/api/admin/settings", settingsH.Update)
+
 		// Stats: latency + new endpoints
 		r.Get("/api/admin/stats/latency", statsH.Latency)
 		r.Get("/api/admin/stats/by-model-day", statsH.ByModelDay)
@@ -209,6 +234,12 @@ func (s *Server) SetupAdminRouter() http.Handler {
 
 		// Stats stream (SSE)
 		r.Get("/api/admin/stats/stream", handlers.NewLogStreamHandler(s.statsStream).Stream)
+
+		// MCP servers (admin)
+		mcpH := handlers.NewMCPHandler(s.db)
+		r.Get("/api/admin/mcp-servers", mcpH.List)
+		r.Post("/api/admin/mcp-servers", mcpH.Create)
+		r.Delete("/api/admin/mcp-servers/{id}", mcpH.Delete)
 
 		// Downloads (admin: list platforms + direct download + link management)
 		downloadsH := handlers.NewDownloadsHandler(s.db, s.cfg.DistDir)
@@ -225,6 +256,10 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	downloadsH := handlers.NewDownloadsHandler(s.db, s.cfg.DistDir)
 	r.Get("/dl/{token}", downloadsH.PreAuthDownload)
 
+	// Install script (public)
+	installH := handlers.NewInstallHandler(s.db)
+	r.Get("/api/install/{token}", installH.Script)
+
 	// User self-service (authenticated with sk-proxy-* token, not admin JWT)
 	userSelfH := handlers.NewUserSelfHandler(s.db, s.cfg.DistDir, s.enc)
 	r.Get("/api/user/me", userSelfH.Me)
@@ -234,9 +269,10 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	r.Post("/api/user/import-account", userSelfH.ImportAccount)
 	r.Get("/api/user/owned-account", userSelfH.OwnedAccount)
 	r.Get("/api/user/pool-status", userSelfH.PoolStatus)
+	r.Get("/api/user/mcp-servers", userSelfH.MCPServers)
 
 	// Anthropic proxy mounted at /proxy — ANTHROPIC_BASE_URL=http://server:3000/proxy
-	proxyH := proxy.New(s.db, s.poolMgr, s.cfg.AnthropicURL, s.cfg.UserMaxRPM, s.cfg.RedisURL, s.cfg.PromptCacheInject, s.webhooks, s.logStream, s.statsStream)
+	proxyH := proxy.New(s.db, s.poolMgr, s.cfg.AnthropicURL, s.cfg.RedisURL, s.settings, s.webhooks, s.logStream, s.statsStream)
 	r.Mount("/proxy", proxyH)
 
 	r.Get("/*", s.frontendHandler())
@@ -312,8 +348,24 @@ func (s *Server) Start() error {
 	router := s.SetupAdminRouter()
 
 	addr := fmt.Sprintf("0.0.0.0:%s", s.cfg.WebPort)
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      router,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 5 * time.Minute, // Long for streaming responses
+		IdleTimeout:  120 * time.Second,
+	}
+
+	go func() {
+		<-ctx.Done()
+		log.Println("shutting down gracefully...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		server.Shutdown(shutdownCtx)
+	}()
+
 	log.Printf("OurClaude listening on http://%s  (proxy at /proxy)", addr)
-	if err := http.ListenAndServe(addr, router); err != nil {
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server: %w", err)
 	}
 	return nil

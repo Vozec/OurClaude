@@ -76,6 +76,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(h.cfg.JWTExpiry.Seconds()),
 	})
 
+	csrfToken := hex.EncodeToString(sha256.New().Sum([]byte(token + "csrf")))[:32]
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    csrfToken,
+		Path:     "/",
+		HttpOnly: false, // JS must read this
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(h.cfg.JWTExpiry.Seconds()),
+	})
+
 	// Audit log — login happens before JWT context exists, so log manually
 	h.db.Create(&database.AuditLog{
 		AdminID:       admin.ID,

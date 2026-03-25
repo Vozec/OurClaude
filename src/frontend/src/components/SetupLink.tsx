@@ -158,6 +158,37 @@ export default function SetupLink() {
           </p>
         </div>
 
+        {/* Step 1b: Alternative Install */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-1.5">
+              <Terminal className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              <span className="font-semibold text-gray-900 dark:text-white text-sm">Alternative: install via script</span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Automatic install (downloads binary + runs login):</p>
+          <div className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-3 flex items-center gap-2 mb-3">
+            <code className="flex-1 text-xs text-green-400 font-mono break-all">
+              curl -sSL {origin}/api/install/{token} | sudo bash
+            </code>
+            <CopyButton text={`curl -sSL ${origin}/api/install/${token} | sudo bash`} />
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Or download manually with wget:</p>
+          <div className="space-y-2">
+            {PLATFORMS.map(p => {
+              const dlPath = data.download_links[p.id] ?? `/api/downloads/${p.id}`
+              const wgetCmd = `wget -O ourclaude ${origin}${dlPath} && chmod +x ourclaude`
+              return (
+                <div key={p.id} className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-2 flex items-center gap-2">
+                  <span className="text-xs text-gray-400 font-medium shrink-0 w-28">{p.label}:</span>
+                  <code className="flex-1 text-xs text-green-400 font-mono break-all">{wgetCmd}</code>
+                  <CopyButton text={wgetCmd} />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
         {/* API token */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
           <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Your API token</p>

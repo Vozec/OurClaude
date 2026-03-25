@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { statsApi } from '../lib/api'
-import { MessageSquare, Zap, Users, Server, ArrowRight, AlertTriangle } from 'lucide-react'
+import { MessageSquare, Zap, Users, Server, ArrowRight, AlertTriangle, DollarSign, Database } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 function StatCard({ label, value, sub, icon: Icon, color }: {
@@ -80,6 +80,7 @@ export default function Dashboard() {
   }
 
   const totalTokens = data.total_input + data.total_output
+  const estimatedCost = (data.total_input / 1_000_000) * 3.0 + (data.total_output / 1_000_000) * 15.0
   const isNewInstall = data.total_requests === 0 && data.total_users === 0
 
   return (
@@ -141,7 +142,7 @@ export default function Dashboard() {
       )}
 
       {/* Stats grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
           label="Total Requests"
           value={data.total_requests.toLocaleString()}
@@ -158,6 +159,29 @@ export default function Dashboard() {
           sub={`↑ ${data.total_input.toLocaleString()} in  ↓ ${data.total_output.toLocaleString()} out`}
           icon={Zap}
           color="bg-purple-500"
+        />
+        <StatCard
+          label="Est. Cost"
+          value={estimatedCost < 0.01 && estimatedCost > 0 ? '<$0.01' : `$${estimatedCost.toFixed(2)}`}
+          sub={data.projected_monthly_usd > 0
+            ? `~$${data.projected_monthly_usd.toFixed(2)}/mo projected`
+            : 'Based on $3/MTok in, $15/MTok out'}
+          icon={DollarSign}
+          color="bg-amber-500"
+        />
+        <StatCard
+          label="Prompt Cache"
+          value={(() => {
+            const cr = data.cache_read_tokens ?? 0
+            return cr >= 1_000_000 ? `${(cr / 1_000_000).toFixed(1)}M` : cr >= 1_000 ? `${(cr / 1_000).toFixed(1)}K` : cr
+          })()}
+          sub={(() => {
+            const cr = data.cache_read_tokens ?? 0
+            const savings = (cr / 1_000_000) * 2.70 // cache reads save ~$2.70/MTok vs full price
+            return savings > 0 ? `~$${savings.toFixed(2)} saved via cache` : 'Cache read tokens'
+          })()}
+          icon={Database}
+          color="bg-teal-500"
         />
         <StatCard
           label="Active Users"

@@ -83,6 +83,8 @@ func (m *Manager) StartHealthCheck(ctx context.Context, interval time.Duration, 
 					if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 						m.MarkError(acc.ID, "health-check: token invalid ("+http.StatusText(resp.StatusCode)+")")
 						log.Printf("pool health-check: account %d invalid token (%d)", acc.ID, resp.StatusCode)
+					} else if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+						log.Printf("pool health-check: account %d temporary error (%d)", acc.ID, resp.StatusCode)
 					}
 				}
 			}

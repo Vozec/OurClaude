@@ -74,16 +74,35 @@ func (h *StatsHandler) Overview(w http.ResponseWriter, r *http.Request) {
 		Group("status").
 		Scan(&accountStatuses)
 
+	// Spending forecast: daily burn rate from last 7 days
+	var weekRows []struct {
+		Model        string
+		InputTokens  int64
+		OutputTokens int64
+	}
+	h.db.Model(&database.UsageLog{}).Where("created_at >= ?", time.Now().UTC().AddDate(0, 0, -7)).
+		Select("model, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens").
+		Group("model").Scan(&weekRows)
+	var weekCost float64
+	for _, r := range weekRows {
+		weekCost += EstimateCost(r.Model, r.InputTokens, r.OutputTokens)
+	}
+	dailyBurn := weekCost / 7
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"total_requests":    totalRequests,
-		"total_input":       totalInput,
-		"total_output":      totalOutput,
-		"total_cache_read":  totalCacheRead,
-		"total_cache_write": totalCacheWrite,
-		"estimated_cost":    estimateCostFromDB(h.db),
-		"active_users":      activeUsers,
-		"total_users":       totalUsers,
-		"account_statuses":  accountStatuses,
+		"total_requests":       totalRequests,
+		"total_input":          totalInput,
+		"total_output":         totalOutput,
+		"total_cache_read":     totalCacheRead,
+		"total_cache_write":    totalCacheWrite,
+		"cache_read_tokens":    totalCacheRead,
+		"cache_write_tokens":   totalCacheWrite,
+		"estimated_cost":       estimateCostFromDB(h.db),
+		"active_users":         activeUsers,
+		"total_users":          totalUsers,
+		"account_statuses":     accountStatuses,
+		"daily_burn_rate_usd":  dailyBurn,
+		"projected_monthly_usd": dailyBurn * 30,
 	})
 }
 

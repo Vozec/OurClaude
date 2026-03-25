@@ -423,6 +423,13 @@ func (h *UserSelfHandler) PoolStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/user/mcp-servers — returns MCP servers for client configuration
+func (h *UserSelfHandler) MCPServers(w http.ResponseWriter, r *http.Request) {
+	var servers []database.MCPServer
+	h.db.Order("name").Find(&servers)
+	writeJSON(w, http.StatusOK, servers)
+}
+
 // GET /api/user/owned-account
 // Returns the current decrypted credentials for the account this user owns,
 // in the ~/.claude/.credentials.json format. Used by cl to keep local credentials in sync.

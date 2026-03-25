@@ -116,6 +116,7 @@ export default function Logs() {
   const [modelFilter, setModelFilter] = useState('')
   const [statusClass, setStatusClass] = useState('')
   const [endpointFilter, setEndpointFilter] = useState('')
+  const [minLatency, setMinLatency] = useState('')
   const [live, setLive] = useState(false)
   const [liveList, setLiveList] = useState<UsageLog[]>([])
   const [viewConvId, setViewConvId] = useState<number | null>(null)
@@ -155,7 +156,10 @@ export default function Logs() {
     return () => es.close()
   }, [live])
 
-  const displayedLogs = live ? liveList : (data?.logs ?? [])
+  const filteredLogs = minLatency
+    ? (data?.logs ?? []).filter(l => l.latency_ms >= Number(minLatency))
+    : (data?.logs ?? [])
+  const displayedLogs = live ? liveList : filteredLogs
 
   return (
     <div className="space-y-6">
@@ -205,6 +209,13 @@ export default function Logs() {
             onChange={e => { setEndpointFilter(e.target.value); setPage(1) }}
             placeholder="Endpoint filter"
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 w-40 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+          />
+          <input
+            type="number"
+            value={minLatency}
+            onChange={e => { setMinLatency(e.target.value); setPage(1) }}
+            placeholder="Min latency (ms)"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 w-36 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
           />
           <a
             href={conversationsApi.exportURL()}

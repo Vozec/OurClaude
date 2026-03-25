@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -77,6 +79,13 @@ func (d *Dispatcher) send(hook database.WebhookConfig, event string, payload int
 
 	if isDiscordURL(hook.URL) {
 		body, err = marshalDiscordPayload(event, payload)
+	} else if strings.Contains(hook.URL, "hooks.slack.com") {
+		detailsJSON, _ := json.Marshal(payload)
+		target := event
+		slackPayload := map[string]interface{}{
+			"text": fmt.Sprintf("*[%s]* %s\n```%s```", event, target, detailsJSON),
+		}
+		body, err = json.Marshal(slackPayload)
 	} else {
 		body, err = json.Marshal(map[string]interface{}{
 			"event":     event,
@@ -106,16 +115,34 @@ func (d *Dispatcher) send(hook database.WebhookConfig, event string, payload int
 		}
 	}
 
-	resp, err := d.client.Do(req)
-	if err != nil {
-		log.Printf("webhook: delivery failed to %s (%s): %v", hook.URL, event, err)
-		return
+	const maxRetries = 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		resp, err := d.client.Do(req)
+		if err == nil && resp.StatusCode < 400 {
+			resp.Body.Close()
+			return
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		if attempt < maxRetries-1 {
+			backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+			time.Sleep(backoff)
+			// Rebuild request for retry
+			req, _ = http.NewRequest("POST", hook.URL, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			if !isDiscordURL(hook.URL) {
+				req.Header.Set("X-Event", event)
+				req.Header.Set("X-Timestamp", time.Now().UTC().Format(time.RFC3339))
+				if hook.Secret != "" {
+					mac := hmac.New(sha256.New, []byte(hook.Secret))
+					mac.Write(body)
+					req.Header.Set("X-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+				}
+			}
+		}
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		log.Printf("webhook: %s responded %d for event %s", hook.URL, resp.StatusCode, event)
-	}
+	log.Printf("webhook: permanently failed after %d retries: %s (%s)", maxRetries, hook.URL, event)
 }
 
 func hasEvent(events, event string) bool {

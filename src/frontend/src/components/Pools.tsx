@@ -14,11 +14,12 @@ function CreatePoolModal({ onClose }: { onClose: () => void }) {
   const [description, setDescription] = useState('')
   const [dailyQuota, setDailyQuota] = useState('')
   const [monthlyQuota, setMonthlyQuota] = useState('')
+  const [allowedModels, setAllowedModels] = useState('')
   const [error, setError] = useState('')
   const qc = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: () => poolsApi.create({ name, description, ...(dailyQuota ? { daily_token_quota: Number(dailyQuota) } : {}), ...(monthlyQuota ? { monthly_token_quota: Number(monthlyQuota) } : {}) }),
+    mutationFn: () => poolsApi.create({ name, description, ...(dailyQuota ? { daily_token_quota: Number(dailyQuota) } : {}), ...(monthlyQuota ? { monthly_token_quota: Number(monthlyQuota) } : {}), ...(allowedModels ? { allowed_models: allowedModels } : {}) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pools'] }); onClose() },
     onError: (e: Error) => setError(e.message),
   })
@@ -51,6 +52,13 @@ function CreatePoolModal({ onClose }: { onClose: () => void }) {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Monthly token quota</label>
               <input type="number" min="0" className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400" value={monthlyQuota} onChange={e => setMonthlyQuota(e.target.value)} placeholder="0 = unlimited" />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Allowed Models <span className="text-gray-400 dark:text-gray-500 font-normal">(comma-separated, optional)</span></label>
+            <input
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+              value={allowedModels} onChange={e => setAllowedModels(e.target.value)} placeholder="claude-sonnet-4-20250514, claude-opus-4-20250514"
+            />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
@@ -133,6 +141,13 @@ export default function Pools() {
                     </h2>
                     {pool.description && (
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{pool.description}</p>
+                    )}
+                    {pool.allowed_models && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {pool.allowed_models.split(',').map(m => m.trim()).filter(Boolean).map(m => (
+                          <span key={m} className="px-2 py-0.5 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded text-xs font-mono">{m}</span>
+                        ))}
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>

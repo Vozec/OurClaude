@@ -5,7 +5,7 @@ import { authApi, Admin } from '../lib/api'
 import {
   LayoutDashboard, Users, Layers, Server, BarChart2, Settings, LogOut,
   ScrollText, ShieldCheck, Webhook, ClipboardList, Mail, Download, ArrowLeftRight, MonitorSmartphone,
-  Moon, Sun
+  Moon, Sun, UsersRound, Plug
 } from 'lucide-react'
 
 const navItems = [
@@ -26,6 +26,8 @@ const adminNavItems = [
   { path: '/audit',     label: 'Audit Log',   icon: ClipboardList },
   { path: '/aliases',  label: 'Model Aliases', icon: ArrowLeftRight },
   { path: '/sessions', label: 'Sessions',       icon: MonitorSmartphone },
+  { path: '/teams',       label: 'Teams',        icon: UsersRound },
+  { path: '/mcp-servers', label: 'MCP Servers',  icon: Plug },
 ]
 
 interface LayoutProps {

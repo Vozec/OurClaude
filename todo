@@ -1,0 +1,15 @@
+# Feature Batch TODO
+
+## Features
+- [x] 1. Prompt caching analytics (dashboard widget)
+- [x] 2. Model access control per pool
+- [x] 3. Slack/Discord alert templates
+- [x] 4. Spending forecast
+- [x] 5. System prompt injection (env var)
+- [x] 6. Prompt response cache (hash-based)
+- [x] 7. Team/group quotas
+- [x] 8. MCP config distribution via CLI
+
+## Install modes
+- [x] 9. Manual install flow (setup page)
+- [x] 10. Automatic install flow (curl | sh)

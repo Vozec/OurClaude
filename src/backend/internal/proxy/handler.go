@@ -55,7 +55,7 @@ type aliasCache struct {
 
 func (c *aliasCache) get(db *gorm.DB, model string) string {
 	c.mu.RLock()
-	stale := time.Since(c.updatedAt) > 30*time.Second
+	stale := time.Since(c.updatedAt) > 5*time.Second
 	if !stale {
 		if target, ok := c.data[model]; ok {
 			c.mu.RUnlock()
@@ -69,7 +69,7 @@ func (c *aliasCache) get(db *gorm.DB, model string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Double-check after acquiring write lock.
-	if time.Since(c.updatedAt) <= 30*time.Second {
+	if time.Since(c.updatedAt) <= 5*time.Second {
 		if target, ok := c.data[model]; ok {
 			return target
 		}
@@ -90,32 +90,77 @@ func (c *aliasCache) get(db *gorm.DB, model string) string {
 	return model
 }
 
+type quotaCacheEntry struct {
+	dailyUsed, monthlyUsed int64
+	budgetSpent            float64
+	poolDailyUsed          map[uint]int64
+	poolMonthlyUsed        map[uint]int64
+	expiresAt              time.Time
+}
+
+type quotaCache struct {
+	mu    sync.RWMutex
+	cache map[uint]*quotaCacheEntry // keyed by user ID
+}
+
+func (c *quotaCache) get(userID uint) *quotaCacheEntry {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if e, ok := c.cache[userID]; ok && time.Now().Before(e.expiresAt) {
+		return e
+	}
+	return nil
+}
+
+func (c *quotaCache) set(userID uint, entry *quotaCacheEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry.expiresAt = time.Now().Add(10 * time.Second)
+	c.cache[userID] = entry
+}
+
 type Handler struct {
 	db          *gorm.DB
 	pool        *pool.Manager
 	upstream    string
 	client      *http.Client
 	limiter     ratelimit.Limiter
-	cacheInject bool
+	settings    SettingsProvider
 	webhooks    WebhookDispatcher
 	logStream   *sse.Broadcaster
 	statsStream *sse.Broadcaster
 	quotaAlerts quotaAlertState
 	aliases     aliasCache
+	quotas      quotaCache
+	respCache   *responseCache
+	inflight    sync.Map // map[string]struct{} for in-flight idempotency keys
 }
 
-func New(db *gorm.DB, poolMgr *pool.Manager, upstream string, rpm int, redisURL string, cacheInject bool, wh WebhookDispatcher, logStream *sse.Broadcaster, statsStream *sse.Broadcaster) *Handler {
+// SettingsProvider reads runtime settings (backed by DB).
+type SettingsProvider interface {
+	Get(key string) string
+	GetBool(key string) bool
+	GetInt(key string) int
+}
+
+func New(db *gorm.DB, poolMgr *pool.Manager, upstream string, redisURL string, settings SettingsProvider, wh WebhookDispatcher, logStream *sse.Broadcaster, statsStream *sse.Broadcaster) *Handler {
+	rpm := 0
+	if settings != nil {
+		rpm = settings.GetInt("user_max_rpm")
+	}
 	return &Handler{
 		db:          db,
 		pool:        poolMgr,
 		upstream:    strings.TrimRight(upstream, "/"),
 		limiter:     ratelimit.New(rpm, redisURL),
-		cacheInject: cacheInject,
+		settings:    settings,
 		webhooks:    wh,
 		logStream:   logStream,
 		statsStream: statsStream,
 		quotaAlerts: quotaAlertState{lastSent: make(map[uint]time.Time)},
 		aliases:     aliasCache{data: make(map[string]string)},
+		quotas:      quotaCache{cache: make(map[uint]*quotaCacheEntry)},
+		respCache:   newResponseCache(0), // TTL read from settings per-request
 		client: &http.Client{
 			Timeout: 5 * time.Minute,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -153,57 +198,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Idempotency-Key deduplication: reject duplicate in-flight requests
+	if key := r.Header.Get("Idempotency-Key"); key != "" {
+		if _, loaded := h.inflight.LoadOrStore(key, struct{}{}); loaded {
+			writeError(w, http.StatusConflict, "duplicate request in progress")
+			return
+		}
+		defer h.inflight.Delete(key)
+	}
+
 	if !h.limiter.Allow(user.ID) {
 		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}
 
-	// Daily token quota
-	if user.DailyTokenQuota > 0 {
-		today := time.Now().UTC().Truncate(24 * time.Hour)
-		var used int64
-		h.db.Model(&database.UsageLog{}).
-			Where("user_id = ? AND created_at >= ?", user.ID, today).
-			Select("COALESCE(SUM(input_tokens + output_tokens), 0)").
-			Row().Scan(&used)
-		if int(used) >= user.DailyTokenQuota {
-			writeError(w, http.StatusTooManyRequests, "daily token quota exceeded")
-			return
-		}
-		h.maybeAlertQuota(user, "daily", int(used), user.DailyTokenQuota)
-	}
-
-	// Monthly token quota
-	if user.MonthlyTokenQuota > 0 {
-		now := time.Now().UTC()
-		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		var used int64
-		h.db.Model(&database.UsageLog{}).
-			Where("user_id = ? AND created_at >= ?", user.ID, monthStart).
-			Select("COALESCE(SUM(input_tokens + output_tokens), 0)").
-			Row().Scan(&used)
-		if int(used) >= user.MonthlyTokenQuota {
-			writeError(w, http.StatusTooManyRequests, "monthly token quota exceeded")
-			return
-		}
-		h.maybeAlertQuota(user, "monthly", int(used), user.MonthlyTokenQuota)
-	}
-
-	// Monthly budget (USD)
-	if user.MonthlyBudgetUSD > 0 {
-		now := time.Now().UTC()
-		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		spent := estimateMonthlyCost(h.db, user.ID, monthStart)
-		if spent >= user.MonthlyBudgetUSD {
-			writeError(w, http.StatusTooManyRequests, fmt.Sprintf("monthly budget of $%.2f exceeded", user.MonthlyBudgetUSD))
-			return
-		}
-	}
-
 	// Load all pool IDs for this user from user_pools join table
 	var poolIDs []uint
 	if err := h.db.Table("user_pools").Where("user_id = ?", user.ID).Pluck("pool_id", &poolIDs).Error; err != nil {
-		log.Printf("proxy: failed to load user pool IDs: %v", err)
+		log.Printf("proxy: failed to load user pool IDs (user=%d): %v", user.ID, err)
 	}
 
 	if len(poolIDs) == 0 {
@@ -219,44 +231,116 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Quota checks with cache
+	cached := h.quotas.get(user.ID)
+	if cached == nil {
+		now := time.Now().UTC()
+		today := now.Truncate(24 * time.Hour)
+		monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+		var dailyUsed int64
+		h.db.Model(&database.UsageLog{}).
+			Where("user_id = ? AND created_at >= ?", user.ID, today).
+			Select("COALESCE(SUM(input_tokens + output_tokens), 0)").
+			Row().Scan(&dailyUsed)
+
+		var monthlyUsed int64
+		h.db.Model(&database.UsageLog{}).
+			Where("user_id = ? AND created_at >= ?", user.ID, monthStart).
+			Select("COALESCE(SUM(input_tokens + output_tokens), 0)").
+			Row().Scan(&monthlyUsed)
+
+		budgetSpent := estimateMonthlyCost(h.db, user.ID, monthStart)
+
+		poolDailyUsed := make(map[uint]int64)
+		poolMonthlyUsed := make(map[uint]int64)
+		firstPoolID := poolIDs[0]
+		var poolRec database.Pool
+		if h.db.First(&poolRec, firstPoolID).Error == nil {
+			if poolRec.DailyTokenQuota > 0 {
+				var used int64
+				h.db.Model(&database.UsageLog{}).
+					Joins("JOIN claude_accounts ON usage_logs.account_id = claude_accounts.id").
+					Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
+					Where("account_pools.pool_id = ? AND usage_logs.created_at >= ?", firstPoolID, today).
+					Select("COALESCE(SUM(usage_logs.input_tokens + usage_logs.output_tokens), 0)").
+					Row().Scan(&used)
+				poolDailyUsed[firstPoolID] = used
+			}
+			if poolRec.MonthlyTokenQuota > 0 {
+				var used int64
+				h.db.Model(&database.UsageLog{}).
+					Joins("JOIN claude_accounts ON usage_logs.account_id = claude_accounts.id").
+					Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
+					Where("account_pools.pool_id = ? AND usage_logs.created_at >= ?", firstPoolID, monthStart).
+					Select("COALESCE(SUM(usage_logs.input_tokens + usage_logs.output_tokens), 0)").
+					Row().Scan(&used)
+				poolMonthlyUsed[firstPoolID] = used
+			}
+		}
+
+		cached = &quotaCacheEntry{
+			dailyUsed:       dailyUsed,
+			monthlyUsed:     monthlyUsed,
+			budgetSpent:     budgetSpent,
+			poolDailyUsed:   poolDailyUsed,
+			poolMonthlyUsed: poolMonthlyUsed,
+		}
+		h.quotas.set(user.ID, cached)
+	}
+
+	// Daily token quota
+	if user.DailyTokenQuota > 0 {
+		if int(cached.dailyUsed) >= user.DailyTokenQuota {
+			writeError(w, http.StatusTooManyRequests, "daily token quota exceeded")
+			return
+		}
+		h.maybeAlertQuota(user, "daily", int(cached.dailyUsed), user.DailyTokenQuota)
+	}
+
+	// Monthly token quota
+	if user.MonthlyTokenQuota > 0 {
+		if int(cached.monthlyUsed) >= user.MonthlyTokenQuota {
+			writeError(w, http.StatusTooManyRequests, "monthly token quota exceeded")
+			return
+		}
+		h.maybeAlertQuota(user, "monthly", int(cached.monthlyUsed), user.MonthlyTokenQuota)
+	}
+
+	// Monthly budget (USD)
+	if user.MonthlyBudgetUSD > 0 {
+		if cached.budgetSpent >= user.MonthlyBudgetUSD {
+			writeError(w, http.StatusTooManyRequests, fmt.Sprintf("monthly budget of $%.2f exceeded", user.MonthlyBudgetUSD))
+			return
+		}
+	}
+
 	// Per-pool quotas (check first assigned pool for now)
 	firstPoolID := poolIDs[0]
 	var poolRecord database.Pool
 	if h.db.First(&poolRecord, firstPoolID).Error == nil {
 		if poolRecord.DailyTokenQuota > 0 {
-			today := time.Now().UTC().Truncate(24 * time.Hour)
-			var used int64
-			h.db.Model(&database.UsageLog{}).
-				Joins("JOIN claude_accounts ON usage_logs.account_id = claude_accounts.id").
-				Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
-				Where("account_pools.pool_id = ? AND usage_logs.created_at >= ?", firstPoolID, today).
-				Select("COALESCE(SUM(usage_logs.input_tokens + usage_logs.output_tokens), 0)").
-				Row().Scan(&used)
-			if int(used) >= poolRecord.DailyTokenQuota {
+			if int(cached.poolDailyUsed[firstPoolID]) >= poolRecord.DailyTokenQuota {
 				writeError(w, http.StatusTooManyRequests, "pool daily token quota exceeded")
 				return
 			}
 		}
 		if poolRecord.MonthlyTokenQuota > 0 {
-			now := time.Now().UTC()
-			monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-			var used int64
-			h.db.Model(&database.UsageLog{}).
-				Joins("JOIN claude_accounts ON usage_logs.account_id = claude_accounts.id").
-				Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
-				Where("account_pools.pool_id = ? AND usage_logs.created_at >= ?", firstPoolID, monthStart).
-				Select("COALESCE(SUM(usage_logs.input_tokens + usage_logs.output_tokens), 0)").
-				Row().Scan(&used)
-			if int(used) >= poolRecord.MonthlyTokenQuota {
+			if int(cached.poolMonthlyUsed[firstPoolID]) >= poolRecord.MonthlyTokenQuota {
 				writeError(w, http.StatusTooManyRequests, "pool monthly token quota exceeded")
 				return
 			}
 		}
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 50*1024*1024) // 50MB limit
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "failed to read request body")
+		if err.Error() == "http: request body too large" {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large (max 50MB)")
+		} else {
+			writeError(w, http.StatusBadRequest, "failed to read request body")
+		}
 		return
 	}
 	r.Body.Close()
@@ -269,6 +353,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("proxy: failed to parse request body for conversation logging: %v", err)
 	}
 	messagesJSON := string(reqParsed.Messages)
+
+	// System prompt injection (runtime-editable via settings)
+	if sp := h.settings.Get("system_prompt_inject"); sp != "" {
+		body = injectSystemPrompt(body, sp)
+	}
 
 	// Model alias rewriting
 	body = rewriteModel(body, func(model string) string {
@@ -284,8 +373,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prompt cache injection
-	if h.cacheInject {
+	if h.settings.GetBool("prompt_cache_inject") {
 		body = injectPromptCache(body)
+	}
+
+	// Response cache check
+	var cacheKey string
+	if h.settings.GetInt("response_cache_ttl") > 0 {
+		cacheKey = h.respCache.key(user.ID, body)
+		if cached := h.respCache.get(cacheKey); cached != nil {
+			for k, vs := range cached.headers {
+				for _, v := range vs {
+					w.Header().Add(k, v)
+				}
+			}
+			w.Header().Set("X-Cache", "HIT")
+			w.WriteHeader(cached.statusCode)
+			w.Write(cached.body)
+			return
+		}
 	}
 
 	const maxRetries = 3
@@ -312,7 +418,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		h.streamResponse(w, resp, user.ID, account.ID, r.URL.Path, start, messagesJSON, h.logStream, h.statsStream)
+		h.streamResponse(w, resp, user.ID, account.ID, r.URL.Path, start, messagesJSON, cacheKey, h.logStream, h.statsStream)
 		h.pool.UpdateLastUsed(account.ID)
 		return
 	}
@@ -393,7 +499,7 @@ func (h *Handler) forward(r *http.Request, body []byte, accessToken string, user
 	}
 
 	// Ensure prompt-caching beta is declared when cache injection is active.
-	if h.cacheInject {
+	if h.settings.GetBool("prompt_cache_inject") {
 		existing := req.Header.Get("anthropic-beta")
 		if !strings.Contains(existing, "prompt-caching") {
 			if existing != "" {
@@ -407,7 +513,7 @@ func (h *Handler) forward(r *http.Request, body []byte, accessToken string, user
 	return h.client.Do(req)
 }
 
-func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, userID, accountID uint, endpoint string, start time.Time, messagesJSON string, logStream *sse.Broadcaster, statsStream *sse.Broadcaster) {
+func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, userID, accountID uint, endpoint string, start time.Time, messagesJSON string, cacheKey string, logStream *sse.Broadcaster, statsStream *sse.Broadcaster) {
 	defer resp.Body.Close()
 
 	for key, values := range resp.Header {
@@ -420,8 +526,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, use
 	flusher, canFlush := w.(http.Flusher)
 	isStreaming := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
 
+	const maxCapture = 10 * 1024 * 1024 // 10MB
 	var buf bytes.Buffer
-	tee := io.TeeReader(resp.Body, &buf)
+	limitedBuf := &limitedWriter{w: &buf, limit: maxCapture}
+	tee := io.TeeReader(resp.Body, limitedBuf)
 
 	var ttftMs int
 	firstByte := true
@@ -445,6 +553,23 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, use
 
 	latencyMs := int(time.Since(start).Milliseconds())
 	captured := buf.Bytes()
+
+	// Cache non-streaming successful responses
+	if !isStreaming && resp.StatusCode == http.StatusOK && cacheKey != "" && h.settings.GetInt("response_cache_ttl") > 0 {
+		headers := make(map[string][]string)
+		for k, v := range resp.Header {
+			headers[k] = v
+		}
+		cachedBody := make([]byte, len(captured))
+		copy(cachedBody, captured)
+		cacheTTL := time.Duration(h.settings.GetInt("response_cache_ttl")) * time.Second
+		h.respCache.setWithTTL(cacheKey, &cachedResponse{
+			statusCode: resp.StatusCode,
+			headers:    headers,
+			body:       cachedBody,
+		}, cacheTTL)
+	}
+
 	go parseAndLogUsage(captured, isStreaming, userID, accountID, endpoint, resp.StatusCode, latencyMs, ttftMs, messagesJSON, h.db, logStream, statsStream)
 }
 
@@ -584,7 +709,7 @@ func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, end
 	}
 
 	if err := db.Create(&entry).Error; err != nil {
-		log.Printf("failed to log usage: %v", err)
+		log.Printf("failed to log usage (user=%d, account=%d): %v", userID, accountID, err)
 		return
 	}
 
@@ -617,6 +742,29 @@ func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, end
 			OutputTokens: outputTokens,
 		})
 	}
+}
+
+type limitedWriter struct {
+	w       io.Writer
+	limit   int
+	written int
+}
+
+func (lw *limitedWriter) Write(p []byte) (n int, err error) {
+	if lw.written >= lw.limit {
+		return len(p), nil // Silently discard after limit
+	}
+	remaining := lw.limit - lw.written
+	toWrite := p
+	if len(toWrite) > remaining {
+		toWrite = toWrite[:remaining]
+	}
+	n, err = lw.w.Write(toWrite)
+	lw.written += n
+	if err != nil {
+		return len(p), nil // Always report full write to not break TeeReader
+	}
+	return len(p), nil
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -742,6 +890,24 @@ func estimateCostRow(model string, input, output int64) float64 {
 		}
 	}
 	return 0
+}
+
+func injectSystemPrompt(body []byte, prefix string) []byte {
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return body
+	}
+	existing, _ := parsed["system"].(string)
+	if existing != "" {
+		parsed["system"] = prefix + "\n\n" + existing
+	} else {
+		parsed["system"] = prefix
+	}
+	result, err := json.Marshal(parsed)
+	if err != nil {
+		return body
+	}
+	return result
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {
