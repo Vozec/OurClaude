@@ -45,6 +45,38 @@ export default function Layout({ admin, children }: LayoutProps) {
     return window.matchMedia('(prefers-color-scheme: dark)').matches
   })
 
+  // Easter egg: 5 clicks on logo toggles comrade mode
+  const [clickCount, setClickCount] = useState(0)
+  const [comradeMode, setComradeMode] = useState(() => localStorage.getItem('comrade') === 'true')
+  const clickTimer = useState<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (comradeMode) {
+      document.documentElement.classList.add('comrade')
+      document.title = 'Gestion du Parti'
+    } else {
+      document.documentElement.classList.remove('comrade')
+      document.title = 'OurClaude'
+    }
+    const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement
+    if (link) link.href = comradeMode ? '/logo.png' : '/favicon.svg'
+  }, [comradeMode])
+
+  function handleLogoClick() {
+    const next = clickCount + 1
+    if (next >= 5) {
+      const newMode = !comradeMode
+      setComradeMode(newMode)
+      localStorage.setItem('comrade', String(newMode))
+      setClickCount(0)
+    } else {
+      setClickCount(next)
+      // Reset counter after 2s of inactivity
+      if (clickTimer[0]) clearTimeout(clickTimer[0])
+      clickTimer[0] = setTimeout(() => setClickCount(0), 2000)
+    }
+  }
+
   useEffect(() => {
     if (dark) {
       document.documentElement.classList.add('dark')
@@ -91,24 +123,24 @@ export default function Layout({ admin, children }: LayoutProps) {
       {/* Sidebar */}
       <aside className="w-64 bg-gray-900 dark:bg-gray-950 text-white flex flex-col">
         {/* Logo */}
-        <div className="px-6 py-5 border-b border-gray-700">
+        <div className="px-6 py-5 border-b border-gray-700 select-none cursor-pointer" onClick={handleLogoClick}>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center shrink-0">
-              <svg className="w-5 h-5 text-white" viewBox="0 0 32 32" fill="none">
-                {/* Hub */}
-                <circle cx="16" cy="16" r="4.5" fill="currentColor"/>
-                {/* Top node */}
-                <circle cx="16" cy="4" r="3" fill="currentColor" fillOpacity="0.65"/>
-                <line x1="16" y1="7" x2="16" y2="11.5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.45"/>
-                {/* Bottom-left node */}
-                <circle cx="5" cy="26" r="3" fill="currentColor" fillOpacity="0.65"/>
-                <line x1="7.5" y1="24.2" x2="13" y2="20.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.45"/>
-                {/* Bottom-right node */}
-                <circle cx="27" cy="26" r="3" fill="currentColor" fillOpacity="0.65"/>
-                <line x1="24.5" y1="24.2" x2="19" y2="20.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.45"/>
-              </svg>
-            </div>
-            <span className="font-semibold text-sm">OurClaude</span>
+            {comradeMode ? (
+              <img src="/logo.png" alt="Logo" className="w-8 h-8 rounded-lg shrink-0" />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-white" viewBox="0 0 32 32" fill="none">
+                  <circle cx="16" cy="16" r="4.5" fill="currentColor"/>
+                  <circle cx="16" cy="4" r="3" fill="currentColor" fillOpacity="0.65"/>
+                  <line x1="16" y1="7" x2="16" y2="11.5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.45"/>
+                  <circle cx="5" cy="26" r="3" fill="currentColor" fillOpacity="0.65"/>
+                  <line x1="7.5" y1="24.2" x2="13" y2="20.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.45"/>
+                  <circle cx="27" cy="26" r="3" fill="currentColor" fillOpacity="0.65"/>
+                  <line x1="24.5" y1="24.2" x2="19" y2="20.2" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.45"/>
+                </svg>
+              </div>
+            )}
+            <span className="font-semibold text-sm">{comradeMode ? 'NashClaude' : 'OurClaude'}</span>
           </div>
         </div>
 

@@ -19,3 +19,39 @@
     @apply px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 disabled:opacity-50 transition-colors;
   }
 }
+
+/* Easter egg: comrade mode */
+.comrade .bg-brand-500 { background-color: #c41e3a !important; }
+.comrade .bg-brand-600 { background-color: #a01830 !important; }
+.comrade .bg-brand-50 { background-color: #fef2f2 !important; }
+.comrade .text-brand-500 { color: #c41e3a !important; }
+.comrade .text-brand-600 { color: #a01830 !important; }
+.comrade .text-brand-700 { color: #8b1225 !important; }
+.comrade .border-brand-500 { border-color: #c41e3a !important; }
+.comrade .focus\:ring-brand-500:focus { --tw-ring-color: #c41e3a !important; }
+.comrade .hover\:bg-brand-600:hover { background-color: #a01830 !important; }
+.comrade .dark .bg-brand-500,
+.comrade.dark .bg-brand-500 { background-color: #c41e3a !important; }
+
+/* Gold accents */
+.comrade .text-brand-400,
+.comrade .dark\:text-brand-400 { color: #d4a843 !important; }
+.comrade .dark\:text-brand-300 { color: #e8c460 !important; }
+.comrade .bg-brand-50,
+.comrade .dark\:bg-brand-900\/30 { background-color: rgba(196, 30, 58, 0.12) !important; }
+
+/* Sidebar dark burgundy */
+.comrade aside.bg-gray-900,
+.comrade aside { background-color: #1a0505 !important; }
+.comrade.dark aside { background-color: #0d0202 !important; }
+
+/* Active nav item */
+.comrade .bg-gray-700 { background-color: #3d0a0a !important; }
+.comrade .hover\:bg-gray-800:hover { background-color: #2a0707 !important; }
+
+/* Brutalist: no rounded corners */
+.comrade *,
+.comrade *::before,
+.comrade *::after {
+  border-radius: 0 !important;
+}
