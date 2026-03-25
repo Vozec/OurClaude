@@ -5,7 +5,7 @@ import { authApi, Admin } from '../lib/api'
 import {
   LayoutDashboard, Users, Layers, Server, BarChart2, Settings, LogOut,
   ScrollText, ShieldCheck, Webhook, ClipboardList, Mail, Download, ArrowLeftRight, MonitorSmartphone,
-  Moon, Sun, UsersRound, Plug
+  Moon, Sun, UsersRound, Plug, Gauge
 } from 'lucide-react'
 
 const navItems = [
@@ -14,6 +14,7 @@ const navItems = [
   { path: '/pools',     label: 'Pools',      icon: Layers },
   { path: '/accounts',  label: 'Accounts',   icon: Server },
   { path: '/analytics', label: 'Analytics',  icon: BarChart2 },
+  { path: '/quotas',    label: 'Quotas',     icon: Gauge },
   { path: '/logs',      label: 'Logs',       icon: ScrollText },
   { path: '/settings',  label: 'Settings',   icon: Settings },
 ]

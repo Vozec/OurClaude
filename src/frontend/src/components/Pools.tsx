@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { poolsApi } from '../lib/api'
 import { Plus, Trash2, RefreshCw, ChevronRight } from 'lucide-react'
+import { useToast } from './ToastProvider'
 
 function StatusDot({ status }: { status: string }) {
   const c = status === 'active' ? 'bg-green-400' : status === 'exhausted' ? 'bg-yellow-400' : 'bg-red-400'
@@ -81,14 +82,16 @@ function CreatePoolModal({ onClose }: { onClose: () => void }) {
 
 export default function Pools() {
   const [showCreate, setShowCreate] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<{title: string; message: string; onConfirm: () => void} | null>(null)
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const toast = useToast()
 
   const { data: pools = [], isLoading } = useQuery({ queryKey: ['pools'], queryFn: poolsApi.list })
 
   const deleteMutation = useMutation({
     mutationFn: poolsApi.delete,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pools'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pools'] }); toast('Deleted!', true) },
     onError: (e: Error) => alert(e.message),
   })
 
@@ -160,9 +163,7 @@ export default function Pools() {
                     </button>
                     <button
                       title="Delete pool"
-                      onClick={() => {
-                        if (confirm(`Delete pool "${pool.name}"?`)) deleteMutation.mutate(pool.id)
-                      }}
+                      onClick={() => setConfirmAction({title: 'Delete Pool', message: `Delete pool "${pool.name}"?`, onConfirm: () => deleteMutation.mutate(pool.id)})}
                       className="p-1.5 text-gray-400 hover:text-red-500 rounded"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -215,6 +216,18 @@ export default function Pools() {
       )}
 
       {showCreate && <CreatePoolModal onClose={() => setShowCreate(false)} />}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-semibold dark:text-white mb-2">{confirmAction.title}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{confirmAction.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmAction(null)} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300">Cancel</button>
+              <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

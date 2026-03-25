@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"net/http"
-	"strings"
 
 	"claude-proxy/internal/auth"
 	"claude-proxy/internal/config"
@@ -37,18 +36,8 @@ func Authenticate(cfg *config.Config) func(http.Handler) http.Handler {
 
 func CSRFProtect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip safe methods
+		// Skip safe methods (GET/HEAD/OPTIONS don't mutate state)
 		if r.Method == "GET" || r.Method == "HEAD" || r.Method == "OPTIONS" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		// Skip proxy path (uses API key auth, not cookies)
-		if strings.HasPrefix(r.URL.Path, "/proxy") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		// Skip public endpoints
-		if r.URL.Path == "/api/auth/login" || r.URL.Path == "/api/invite/use" {
 			next.ServeHTTP(w, r)
 			return
 		}

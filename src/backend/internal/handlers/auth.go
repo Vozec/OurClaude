@@ -140,12 +140,19 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read CSRF token from cookie to include in response (frontend may not be able to read cookie)
+	csrfValue := ""
+	if c, err := r.Cookie("csrf_token"); err == nil {
+		csrfValue = c.Value
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":           admin.ID,
 		"username":     admin.Username,
 		"totp_enabled": admin.TOTPEnabled,
 		"role":         admin.Role,
 		"created_at":   admin.CreatedAt,
+		"csrf_token":   csrfValue,
 	})
 }
 

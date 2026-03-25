@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { teamsApi, Team } from '../lib/api'
 import { Plus, Trash2, Pencil } from 'lucide-react'
+import { useToast } from './ToastProvider'
 
 function TeamModal({ team, onClose }: { team?: Team; onClose: () => void }) {
   const [name, setName] = useState(team?.name ?? '')
@@ -73,13 +74,15 @@ function TeamModal({ team, onClose }: { team?: Team; onClose: () => void }) {
 export default function Teams() {
   const [showCreate, setShowCreate] = useState(false)
   const [editing, setEditing] = useState<Team | undefined>()
+  const [confirmAction, setConfirmAction] = useState<{title: string; message: string; onConfirm: () => void} | null>(null)
   const qc = useQueryClient()
+  const toast = useToast()
 
   const { data: teams = [], isLoading } = useQuery({ queryKey: ['teams'], queryFn: teamsApi.list })
 
   const deleteMutation = useMutation({
     mutationFn: (t: Team) => teamsApi.delete(t.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['teams'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['teams'] }); toast('Deleted!', true) },
     onError: (e: Error) => alert(e.message),
   })
 
@@ -136,7 +139,7 @@ export default function Teams() {
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => { if (confirm(`Delete team "${t.name}"?`)) deleteMutation.mutate(t) }}
+                        onClick={() => setConfirmAction({title: 'Delete Team', message: `Delete team "${t.name}"?`, onConfirm: () => deleteMutation.mutate(t)})}
                         className="p-1.5 text-gray-400 hover:text-red-500 rounded"
                         title="Delete team"
                       >
@@ -153,6 +156,18 @@ export default function Teams() {
 
       {showCreate && <TeamModal onClose={() => setShowCreate(false)} />}
       {editing && <TeamModal team={editing} onClose={() => setEditing(undefined)} />}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-semibold dark:text-white mb-2">{confirmAction.title}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{confirmAction.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmAction(null)} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300">Cancel</button>
+              <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

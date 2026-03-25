@@ -1,16 +1,14 @@
 const BASE = '/api'
 
-function getCookie(name: string): string {
-  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))
-  return match ? match[2] : ''
-}
+// CSRF token stored in memory, populated from /api/auth/me response
+let csrfToken = ''
+export function setCsrfToken(token: string) { csrfToken = token }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   if (body) {
     headers['Content-Type'] = 'application/json'
   }
-  const csrfToken = getCookie('csrf_token')
   if (csrfToken) {
     headers['X-CSRF-Token'] = csrfToken
   }
@@ -240,10 +238,29 @@ export const teamsApi = {
 // MCP Servers
 export const mcpApi = {
   list:   () => get<MCPServerConfig[]>('/admin/mcp-servers'),
-  create: (body: { name: string; command: string; args?: string; env?: string }) =>
+  create: (body: { name: string; type?: string; command?: string; args?: string; url?: string; env?: string }) =>
             post<MCPServerConfig>('/admin/mcp-servers', body),
   delete: (id: number) => del(`/admin/mcp-servers/${id}`),
 }
+
+// Quotas
+export const quotasApi = {
+  overview: () => get<QuotaOverview>('/admin/quotas'),
+}
+
+export interface QuotaEntry {
+  entity_type: string  // "user" | "team" | "pool"
+  entity_id: number
+  entity_name: string
+  daily_used: number
+  daily_limit: number
+  monthly_used: number
+  monthly_limit: number
+  budget_used: number
+  budget_limit: number
+}
+
+export interface QuotaOverview { entries: QuotaEntry[] }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -253,6 +270,7 @@ export interface Admin {
   totp_enabled: boolean
   role: string
   created_at: string
+  csrf_token?: string
 }
 
 export interface Pool {
@@ -505,8 +523,10 @@ export interface Team {
 export interface MCPServerConfig {
   id: number
   name: string
+  type: 'command' | 'http'
   command: string
   args: string
+  url: string
   env: string
   created_at: string
 }

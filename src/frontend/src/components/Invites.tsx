@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { invitesApi, poolsApi, Invite, InviteCreated, Pool } from '../lib/api'
 import { Plus, Trash2, Copy, Check } from 'lucide-react'
+import { useToast } from './ToastProvider'
 
 function PoolCheckboxList({ pools, selected, onChange }: {
   pools: Pool[]
@@ -143,13 +144,15 @@ function CreateInviteModal({ onClose }: { onClose: () => void }) {
 
 export default function Invites() {
   const [showCreate, setShowCreate] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<{title: string; message: string; onConfirm: () => void} | null>(null)
   const qc = useQueryClient()
+  const toast = useToast()
 
   const { data: invites = [], isLoading } = useQuery({ queryKey: ['invites'], queryFn: invitesApi.list })
 
   const deleteMutation = useMutation({
     mutationFn: invitesApi.delete,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['invites'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invites'] }); toast('Deleted!', true) },
   })
 
   return (
@@ -224,7 +227,7 @@ export default function Invites() {
                     <td className="px-6 py-4 text-right">
                       <button
                         title="Delete"
-                        onClick={() => { if (confirm('Delete this invite?')) deleteMutation.mutate(invite.id) }}
+                        onClick={() => setConfirmAction({title: 'Delete Invite', message: 'Delete this invite?', onConfirm: () => deleteMutation.mutate(invite.id)})}
                         className="p-1.5 text-gray-400 hover:text-red-500 rounded"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -239,6 +242,18 @@ export default function Invites() {
       </div>
 
       {showCreate && <CreateInviteModal onClose={() => setShowCreate(false)} />}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-semibold dark:text-white mb-2">{confirmAction.title}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{confirmAction.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmAction(null)} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300">Cancel</button>
+              <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

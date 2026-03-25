@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { setupApi, SetupLinkData } from '../lib/api'
-import { Copy, Check, Terminal, Download, Moon, Sun } from 'lucide-react'
+import { Copy, Check, Terminal, Download, Moon, Sun, ChevronDown, ChevronRight, Zap } from 'lucide-react'
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false)
@@ -45,6 +45,38 @@ const PLATFORMS = [
   { id: 'darwin-arm64',  label: 'macOS ARM (M1/M2)' },
   { id: 'windows-amd64', label: 'Windows x64' },
 ]
+
+function RTKSection() {
+  const [open, setOpen] = useState(false)
+  const rtkCmd = 'curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | bash && rtk init --global'
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 mb-4">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 w-full text-left">
+        {open ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+        <Zap className="w-4 h-4 text-amber-500" />
+        <span className="font-semibold text-gray-900 dark:text-white text-sm">Recommended: Install RTK (token optimizer)</span>
+        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">optional</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener noreferrer" className="text-brand-500 hover:underline font-medium">RTK (Rust Token Killer)</a> optimizes Claude Code token usage by <strong>60-90%</strong> by filtering unnecessary context from CLI tool outputs. It runs as a transparent hook — no configuration needed after install.
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            RTK is <strong>included by default</strong> in the automatic install script above. To install manually:
+          </p>
+          <div className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-3 flex items-center gap-2">
+            <code className="flex-1 text-xs text-green-400 font-mono break-all">{rtkCmd}</code>
+            <CopyButton text={rtkCmd} />
+          </div>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            After install, RTK hooks into Claude Code automatically. Run <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">rtk gain</code> to see token savings.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function SetupLink() {
   const { token } = useParams<{ token: string }>()
@@ -188,6 +220,9 @@ export default function SetupLink() {
             })}
           </div>
         </div>
+
+        {/* RTK recommendation */}
+        <RTKSection />
 
         {/* API token */}
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">

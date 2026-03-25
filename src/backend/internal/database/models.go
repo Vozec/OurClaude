@@ -206,9 +206,11 @@ type Team struct {
 type MCPServer struct {
 	ID        uint      `gorm:"primarykey" json:"id"`
 	Name      string    `gorm:"uniqueIndex;not null" json:"name"`
-	Command   string    `gorm:"not null" json:"command"`
-	Args      string    `json:"args"` // JSON array
-	Env       string    `json:"env"`  // JSON object
+	Type      string    `gorm:"default:'command'" json:"type"` // "command" or "http"
+	Command   string    `json:"command"`                       // for command type
+	Args      string    `json:"args"`                          // JSON array, for command type
+	URL       string    `json:"url"`                           // for http type
+	Env       string    `json:"env"`                           // JSON object
 	CreatedAt time.Time `json:"created_at"`
 }
 

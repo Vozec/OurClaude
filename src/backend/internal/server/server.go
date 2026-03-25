@@ -88,8 +88,6 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
-	r.Use(middleware.CSRFProtect)
-
 	// Health check + Prometheus metrics (public)
 	r.Get("/healthz", s.healthCheck())
 	r.Handle("/metrics", promhttp.Handler())
@@ -114,6 +112,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	authMw := middleware.Authenticate(s.cfg)
 	r.Group(func(r chi.Router) {
 		r.Use(authMw)
+		r.Use(middleware.CSRFProtect)
 
 		r.Get("/api/auth/me", authH.Me)
 		r.Post("/api/auth/totp/setup", authH.TOTPSetup)

@@ -42,11 +42,6 @@ RUN apk add --no-cache ca-certificates tzdata wget curl bash
 
 RUN mkdir -p /data /usr/local/share/cl
 
-# Install RTK (token optimizer for Claude Code)
-RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | bash && \
-    mv /root/.local/bin/rtk /usr/local/bin/rtk && \
-    rtk init --global
-
 COPY --from=go-builder /claude-proxy /usr/local/bin/claude-proxy
 COPY --from=go-builder /dist/ /usr/local/share/cl/
 

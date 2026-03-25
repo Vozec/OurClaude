@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, poolsApi, usersApi, Account, Pool, User } from '../lib/api'
 import { Plus, Trash2, RefreshCw, RotateCcw, CheckCircle, AlertCircle, Clock, X, KeyRound, Pencil, Link2Off, BarChart2, Power, Key } from 'lucide-react'
+import { useToast } from './ToastProvider'
 
 function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, danger }: {
   title: string; message: string; confirmLabel?: string
@@ -49,9 +50,9 @@ function PoolCheckboxes({ pools, selected, onChange }: { pools: Pool[]; selected
   )
 }
 
-function AddAccountModal({ pools, onClose }: { pools: Pool[]; onClose: () => void }) {
+function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defaultType: 'oauth' | 'apikey'; onClose: () => void }) {
   const [name, setName] = useState('')
-  const [accountType, setAccountType] = useState<'oauth' | 'apikey'>('oauth')
+  const [accountType, setAccountType] = useState<'oauth' | 'apikey'>(defaultType)
   const [selectedPools, setSelectedPools] = useState<Set<number>>(new Set(pools[0]?.id ? [pools[0].id] : []))
   const [credJson, setCredJson] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -312,8 +313,6 @@ function UserInfoPopup({ user, onClose }: { user: User; onClose: () => void }) {
   )
 }
 
-type Toast = { id: number; message: string; ok: boolean }
-
 function ApiKeyStatsCell({ accountId }: { accountId: number }) {
   const { data: stats } = useQuery({
     queryKey: ['account-stats', accountId],
@@ -340,15 +339,9 @@ export default function Accounts() {
   const [credAccount, setCredAccount] = useState<Account | null>(null)
   const [quotaAccount, setQuotaAccount] = useState<Account | null>(null)
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; confirmLabel: string; danger: boolean; action: () => void } | null>(null)
-  const [toasts, setToasts] = useState<Toast[]>([])
   const [tab, setTab] = useState<'oauth' | 'apikey'>('oauth')
   const qc = useQueryClient()
-
-  const addToast = (message: string, ok: boolean) => {
-    const id = Date.now()
-    setToasts(t => [...t, { id, message, ok }])
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4000)
-  }
+  const toast = useToast()
 
   const { data: accounts = [], isLoading } = useQuery({ queryKey: ['accounts'], queryFn: accountsApi.list })
   const oauthAccounts = accounts.filter(a => a.account_type !== 'apikey')
@@ -364,8 +357,8 @@ export default function Accounts() {
 
   const refreshMutation = useMutation({
     mutationFn: accountsApi.refresh,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); addToast('Token refreshed', true) },
-    onError: (e: Error) => addToast('Refresh failed: ' + e.message, false),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); toast('Token refreshed', true) },
+    onError: (e: Error) => toast('Refresh failed: ' + e.message, false),
   })
 
   const resetMutation = useMutation({
@@ -375,20 +368,20 @@ export default function Accounts() {
 
   const testMutation = useMutation({
     mutationFn: accountsApi.test,
-    onSuccess: (data) => addToast(data.ok ? '✓ Account is working' : `✗ Status code: ${data.status_code}`, data.ok),
-    onError: (e: Error) => addToast('Test failed: ' + e.message, false),
+    onSuccess: (data) => toast(data.ok ? '✓ Account is working' : `✗ Status code: ${data.status_code}`, data.ok),
+    onError: (e: Error) => toast('Test failed: ' + e.message, false),
   })
 
   const unlinkMutation = useMutation({
     mutationFn: (id: number) => accountsApi.unlink(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); addToast('Account unlinked from pool', true) },
-    onError: (e: Error) => addToast('Unlink failed: ' + e.message, false),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); toast('Account unlinked from pool', true) },
+    onError: (e: Error) => toast('Unlink failed: ' + e.message, false),
   })
 
   const toggleMutation = useMutation({
     mutationFn: accountsApi.toggle,
-    onSuccess: (data) => { qc.invalidateQueries({ queryKey: ['accounts'] }); addToast(`Account ${data.status}`, true) },
-    onError: (e: Error) => addToast('Toggle failed: ' + e.message, false),
+    onSuccess: (data) => { qc.invalidateQueries({ queryKey: ['accounts'] }); toast(`Account ${data.status}`, true) },
+    onError: (e: Error) => toast('Toggle failed: ' + e.message, false),
   })
 
   const isApiKey = (a: Account) => a.account_type === 'apikey'
@@ -407,16 +400,6 @@ export default function Accounts() {
 
   return (
     <div className="space-y-6">
-      {/* Toast notifications */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
-        {toasts.map(t => (
-          <div key={t.id} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium text-white transition-all ${t.ok ? 'bg-green-600' : 'bg-red-600'}`}>
-            {t.ok ? <CheckCircle className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
-            {t.message}
-          </div>
-        ))}
-      </div>
-
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Claude Accounts</h1>
@@ -427,7 +410,7 @@ export default function Accounts() {
           className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm hover:bg-brand-600"
         >
           <Plus className="w-4 h-4" />
-          Add Account
+          {tab === 'oauth' ? 'Add OAuth Account' : 'Add API Key'}
         </button>
       </div>
 
@@ -591,7 +574,7 @@ export default function Accounts() {
         )}
       </div>
 
-      {showAdd && <AddAccountModal pools={pools} onClose={() => setShowAdd(false)} />}
+      {showAdd && <AddAccountModal pools={pools} defaultType={tab} onClose={() => setShowAdd(false)} />}
       {editAccount && <EditAccountModal account={editAccount} pools={pools} onClose={() => setEditAccount(null)} />}
       {credAccount && <CredentialsModal account={credAccount} onClose={() => setCredAccount(null)} />}
       {quotaAccount && <QuotaModal account={quotaAccount} onClose={() => setQuotaAccount(null)} />}

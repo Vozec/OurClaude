@@ -1,7 +1,7 @@
 import React, { Component, ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { authApi } from './lib/api'
+import { authApi, setCsrfToken } from './lib/api'
 import Login from './components/Login'
 import Layout from './components/Layout'
 import Dashboard from './components/Dashboard'
@@ -23,6 +23,8 @@ import PoolDetail from './components/PoolDetail'
 import SetupLink from './components/SetupLink'
 import Teams from './components/Teams'
 import MCPServers from './components/MCPServers'
+import Quotas from './components/Quotas'
+import { ToastProvider } from './components/ToastProvider'
 
 class ErrorBoundary extends Component<{children: ReactNode}, {error: Error | null}> {
   state = { error: null as Error | null }
@@ -48,22 +50,28 @@ class ErrorBoundary extends Component<{children: ReactNode}, {error: Error | nul
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/invite" element={<InviteUse />} />
-        <Route path="/invite/:token" element={<InviteUse />} />
-        <Route path="/setup/:token" element={<SetupLink />} />
-        <Route path="/*" element={<PrivateRoutes />} />
-      </Routes>
-    </BrowserRouter>
+    <ToastProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/invite" element={<InviteUse />} />
+          <Route path="/invite/:token" element={<InviteUse />} />
+          <Route path="/setup/:token" element={<SetupLink />} />
+          <Route path="/*" element={<PrivateRoutes />} />
+        </Routes>
+      </BrowserRouter>
+    </ToastProvider>
   )
 }
 
 function PrivateRoutes() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['me'],
-    queryFn: authApi.me,
+    queryFn: async () => {
+      const admin = await authApi.me()
+      if (admin.csrf_token) setCsrfToken(admin.csrf_token)
+      return admin
+    },
     retry: false,
   })
 
@@ -100,6 +108,7 @@ function PrivateRoutes() {
           <Route path="/sessions" element={<Sessions />} />
           <Route path="/teams" element={<Teams />} />
           <Route path="/mcp-servers" element={<MCPServers />} />
+          <Route path="/quotas" element={<Quotas />} />
         </Routes>
       </Layout>
     </ErrorBoundary>

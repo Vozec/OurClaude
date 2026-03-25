@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { downloadsApi, DownloadLink, UserBinaryDownload } from '../lib/api'
 import { Download, Link2, Trash2, Ban, Plus, Copy, Check, Monitor, Apple, Terminal, Key } from 'lucide-react'
+import { useToast } from './ToastProvider'
 
 const PLATFORM_LABELS: Record<string, { label: string; icon: React.ElementType }> = {
   'linux-amd64':   { label: 'Linux x86_64',   icon: Terminal },
@@ -142,6 +143,8 @@ function CreateLinkModal({ onClose }: CreateLinkModal) {
 export default function Downloads() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<{title: string; message: string; onConfirm: () => void} | null>(null)
+  const toast = useToast()
 
   const { data: platforms = [] } = useQuery({
     queryKey: ['platforms'],
@@ -165,7 +168,7 @@ export default function Downloads() {
 
   const deleteMutation = useMutation({
     mutationFn: downloadsApi.deleteLink,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['download-links'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['download-links'] }); toast('Deleted!', true) },
   })
 
   return (
@@ -280,9 +283,7 @@ export default function Downloads() {
                           </button>
                         )}
                         <button
-                          onClick={() => {
-                            if (confirm('Delete this link?')) deleteMutation.mutate(link.id)
-                          }}
+                          onClick={() => setConfirmAction({title: 'Delete Link', message: 'Delete this link?', onConfirm: () => deleteMutation.mutate(link.id)})}
                           className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
                           title="Delete"
                         >
@@ -360,6 +361,18 @@ export default function Downloads() {
       </div>
 
       {showCreate && <CreateLinkModal onClose={() => setShowCreate(false)} />}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-semibold dark:text-white mb-2">{confirmAction.title}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{confirmAction.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmAction(null)} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300">Cancel</button>
+              <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

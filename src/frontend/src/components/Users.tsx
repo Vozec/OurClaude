@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, poolsApi, User, Pool, UserStats, Account } from '../lib/api'
 import { Plus, RotateCcw, Trash2, Edit2, Copy, Check, Clock, Gauge, Terminal, Link2, X } from 'lucide-react'
+import { useToast } from './ToastProvider'
 
 function Badge({ active }: { active: boolean }) {
   return (
@@ -457,14 +458,16 @@ export default function Users() {
   const [editUser, setEditUser]     = useState<User | null>(null)
   const [setupLinkCopied, setSetupLinkCopied] = useState<number | null>(null)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{title: string; message: string; onConfirm: () => void} | null>(null)
   const qc = useQueryClient()
+  const toast = useToast()
 
   const { data: users = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
   const { data: pools = [] }            = useQuery({ queryKey: ['pools'], queryFn: poolsApi.list })
 
   const deleteMutation = useMutation({
     mutationFn: usersApi.delete,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); toast('Deleted!', true) },
   })
   const rotateMutation = useMutation({
     mutationFn: usersApi.rotateToken,
@@ -566,7 +569,7 @@ export default function Users() {
                       </button>
                       <button
                         title="Delete"
-                        onClick={() => { if (confirm(`Delete user "${user.name}"?`)) deleteMutation.mutate(user.id) }}
+                        onClick={() => setConfirmAction({title: 'Delete User', message: `Delete user "${user.name}"?`, onConfirm: () => deleteMutation.mutate(user.id)})}
                         className="p-1.5 text-gray-400 hover:text-red-500 rounded"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -583,6 +586,18 @@ export default function Users() {
       {showCreate && <CreateUserModal pools={pools} onClose={() => setShowCreate(false)} />}
       {editUser   && <EditUserModal user={editUser} pools={pools} onClose={() => setEditUser(null)} />}
       {selectedUser && <UserDetailPanel user={selectedUser} onClose={() => setSelectedUser(null)} />}
+      {confirmAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-semibold dark:text-white mb-2">{confirmAction.title}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{confirmAction.message}</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmAction(null)} className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300">Cancel</button>
+              <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null) }} className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

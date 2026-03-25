@@ -168,6 +168,19 @@ sudo mv ourclaude /usr/local/bin/
 ourclaude login https://your-server sk-proxy-xxxxx
 ```
 
+### RTK (Recommended)
+
+[RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) is a token optimizer that reduces Claude Code token usage by **60-90%** by filtering unnecessary context from CLI tool outputs. It's **included by default** in the automatic install script.
+
+To install manually:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | bash
+rtk init --global
+```
+
+After install, RTK hooks into Claude Code transparently. Run `rtk gain` to see savings.
+
 ---
 
 ## Configuration
