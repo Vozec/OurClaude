@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { webhooksApi, Webhook } from '../lib/api'
 import { Plus, Trash2, ToggleLeft, ToggleRight, Copy, Check } from 'lucide-react'
 import { useToast } from './ToastProvider'
+import { copyToClipboard } from '../lib/clipboard'
 
 const EVENT_OPTIONS = [
   { value: 'account.exhausted', label: 'Account exhausted (quota hit)' },
@@ -16,7 +17,7 @@ function CopySecret({ secret }: { secret: string }) {
   return (
     <div className="flex items-center gap-1">
       <code className="text-xs bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 rounded font-mono">{secret.slice(0, 10)}...</code>
-      <button onClick={() => { navigator.clipboard.writeText(secret); setCopied(true); setTimeout(() => setCopied(false), 2000) }}>
+      <button onClick={() => { copyToClipboard(secret); setCopied(true); setTimeout(() => setCopied(false), 2000) }}>
         {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-400" />}
       </button>
     </div>
@@ -160,11 +161,14 @@ export default function Webhooks() {
         </button>
       </div>
 
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 text-sm text-blue-700 dark:text-blue-300">
-        <strong>Available events:</strong> <code>account.exhausted</code> (quota hit 429) · <code>account.error</code> (network/token failure) · <code>quota.warning</code> (user at 80% of limit)
-        <br />
-        HTTP endpoints: payloads are signed with <code>X-Signature: sha256=...</code> when a secret is set.
-        Discord webhook URLs are auto-detected and formatted as embeds.
+      <div className="text-xs text-gray-500 dark:text-gray-400 space-y-2">
+        <p className="font-medium text-gray-600 dark:text-gray-300">Available events:</p>
+        <ul className="list-disc list-inside space-y-1">
+          <li><code>account.exhausted</code> — Quota hit (429)</li>
+          <li><code>account.error</code> — Network/token failure</li>
+          <li><code>quota.warning</code> — User at 80% of limit</li>
+        </ul>
+        <p>Payloads are signed with <code>X-Signature: sha256=...</code> when a secret is set. Discord webhook URLs are auto-detected and formatted as embeds.</p>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">

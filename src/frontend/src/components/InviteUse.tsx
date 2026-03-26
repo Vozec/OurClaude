@@ -3,12 +3,13 @@ import { useParams } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { invitesApi } from '../lib/api'
 import { Copy, Check, Terminal, Download, Moon, Sun } from 'lucide-react'
+import { copyToClipboard } from '../lib/clipboard'
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+      onClick={() => { copyToClipboard(text); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
       className={`shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ${className}`}
     >
       {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}

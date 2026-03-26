@@ -178,10 +178,19 @@ func (m *Manager) GetAccountForPool(poolID uint) (*database.ClaudeAccount, error
 		return m.pickAndValidate(poolID, apikeys)
 	}
 
-	// 3. Last resort: exhausted OAuth accounts
+	// 3. Last resort: exhausted OAuth accounts (don't mark error on failure)
 	oauthExhausted := filterByTypeAndStatus(accounts, "oauth", "exhausted")
 	if len(oauthExhausted) > 0 {
-		return m.pickAndValidate(poolID, oauthExhausted)
+		return m.pickAndValidateSoft(poolID, oauthExhausted)
+	}
+
+	// 4. Final fallback: error OAuth accounts (try to recover)
+	var errorAccounts []database.ClaudeAccount
+	m.db.Joins("JOIN account_pools ON account_pools.account_id = claude_accounts.id").
+		Where("account_pools.pool_id = ? AND claude_accounts.status = ? AND claude_accounts.account_type = ?", poolID, "error", "oauth").
+		Find(&errorAccounts)
+	if len(errorAccounts) > 0 {
+		return m.pickAndValidateSoft(poolID, errorAccounts)
 	}
 
 	return nil, ErrNoActiveAccounts
@@ -203,6 +212,30 @@ func (m *Manager) pickAndValidate(poolID uint, candidates []database.ClaudeAccou
 		if err := m.oauth.EnsureValid(m.db, &account); err != nil {
 			m.MarkError(account.ID, err.Error())
 			return nil, err
+		}
+	}
+
+	return &account, nil
+}
+
+// pickAndValidateSoft is like pickAndValidate but doesn't mark accounts as error on failure.
+// Used for last-resort exhausted accounts to avoid permanently locking out the only account.
+func (m *Manager) pickAndValidateSoft(poolID uint, candidates []database.ClaudeAccount) (*database.ClaudeAccount, error) {
+	m.mu.Lock()
+	idx := m.roundRobin[poolID] % len(candidates)
+	m.roundRobin[poolID] = (idx + 1) % len(candidates)
+	account := candidates[idx]
+	m.mu.Unlock()
+
+	if err := m.decryptAccount(&account); err != nil {
+		return nil, err
+	}
+
+	if account.AccountType != "apikey" {
+		if err := m.oauth.EnsureValid(m.db, &account); err != nil {
+			// Don't mark error — just log and return the account as-is
+			// It might still work with an expired token for some endpoints
+			log.Printf("pool: soft validation failed for account %d, using anyway: %v", account.ID, err)
 		}
 	}
 

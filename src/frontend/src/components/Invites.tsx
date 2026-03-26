@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { invitesApi, poolsApi, Invite, InviteCreated, Pool } from '../lib/api'
 import { Plus, Trash2, Copy, Check } from 'lucide-react'
 import { useToast } from './ToastProvider'
+import { copyToClipboard } from '../lib/clipboard'
 
 function PoolCheckboxList({ pools, selected, onChange }: {
   pools: Pool[]
@@ -40,7 +41,7 @@ function CopyLink({ token, serverUrl }: { token: string; serverUrl: string }) {
     <div className="flex items-center gap-2">
       <code className="text-xs bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-2 py-1 rounded font-mono break-all">{link}</code>
       <button
-        onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+        onClick={() => { copyToClipboard(link); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
         className="shrink-0 text-gray-400 hover:text-gray-600"
       >
         {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}

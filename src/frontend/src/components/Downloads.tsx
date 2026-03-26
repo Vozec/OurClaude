@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { downloadsApi, DownloadLink, UserBinaryDownload } from '../lib/api'
 import { Download, Link2, Trash2, Ban, Plus, Copy, Check, Monitor, Apple, Terminal, Key } from 'lucide-react'
 import { useToast } from './ToastProvider'
+import { copyToClipboard } from '../lib/clipboard'
 
 const PLATFORM_LABELS: Record<string, { label: string; icon: React.ElementType }> = {
   'linux-amd64':   { label: 'Linux x86_64',   icon: Terminal },
@@ -15,7 +16,7 @@ const PLATFORM_LABELS: Record<string, { label: string; icon: React.ElementType }
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   function handleCopy() {
-    navigator.clipboard.writeText(text)
+    copyToClipboard(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }

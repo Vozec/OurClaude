@@ -117,7 +117,7 @@ export default function Layout({ admin, children }: LayoutProps) {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-gray-900 dark:bg-gray-950 text-white flex flex-col">
         {/* Logo */}

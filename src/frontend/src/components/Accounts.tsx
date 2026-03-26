@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, poolsApi, usersApi, Account, Pool, User } from '../lib/api'
 import { Plus, Trash2, RefreshCw, RotateCcw, CheckCircle, AlertCircle, Clock, X, KeyRound, Pencil, Link2Off, BarChart2, Power, Key } from 'lucide-react'
 import { useToast } from './ToastProvider'
+import { copyToClipboard } from '../lib/clipboard'
 
 function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, danger }: {
   title: string; message: string; confirmLabel?: string
@@ -214,7 +215,7 @@ function CredentialsModal({ account, onClose }: { account: Account; onClose: () 
   const json = data ? JSON.stringify(data, null, 2) : ''
 
   const copy = () => {
-    navigator.clipboard.writeText(json)
+    copyToClipboard(json)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }

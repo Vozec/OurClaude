@@ -431,16 +431,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) authenticate(r *http.Request) (*database.User, error) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return nil, errUnauthorized
+	var token string
+
+	// Try x-api-key header first (Claude Code sends auth this way)
+	if key := r.Header.Get("x-api-key"); key != "" {
+		token = key
+	} else if key := r.Header.Get("X-Api-Key"); key != "" {
+		token = key
+	} else {
+		// Fall back to Authorization: Bearer
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			return nil, errUnauthorized
+		}
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+		if token == authHeader {
+			token = strings.TrimPrefix(authHeader, "bearer ")
+		}
+		if token == authHeader {
+			return nil, errUnauthorized
+		}
 	}
 
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-	if token == authHeader {
-		token = strings.TrimPrefix(authHeader, "bearer ")
-	}
-	if token == authHeader {
+	// Also try ANTHROPIC_AUTH_TOKEN pattern (sent as Bearer by some clients)
+	if token == "" {
 		return nil, errUnauthorized
 	}
 
@@ -453,7 +467,15 @@ func (h *Handler) authenticate(r *http.Request) (*database.User, error) {
 }
 
 func (h *Handler) forward(r *http.Request, body []byte, accessToken string, user *database.User) (*http.Response, error) {
-	upstreamURL := h.upstream + r.URL.Path
+	// Safety: strip /proxy prefix if chi Mount didn't strip it
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/proxy") {
+		path = strings.TrimPrefix(path, "/proxy")
+	}
+	if path == "" {
+		path = "/"
+	}
+	upstreamURL := h.upstream + path
 	if r.URL.RawQuery != "" {
 		upstreamURL += "?" + r.URL.RawQuery
 	}
@@ -465,7 +487,7 @@ func (h *Handler) forward(r *http.Request, body []byte, accessToken string, user
 
 	for key, values := range r.Header {
 		k := strings.ToLower(key)
-		if k == "authorization" || k == "host" {
+		if k == "authorization" || k == "host" || k == "x-api-key" {
 			continue
 		}
 		for _, v := range values {
@@ -597,6 +619,10 @@ func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, end
 	var inputTokens, outputTokens, cacheRead, cacheWrite int
 	var model string
 	var responseText strings.Builder
+
+	if len(body) == 0 {
+		log.Printf("proxy: empty response body for user=%d account=%d status=%d", userID, accountID, statusCode)
+	}
 
 	if isStreaming {
 		lines := bytes.Split(body, []byte("\n"))

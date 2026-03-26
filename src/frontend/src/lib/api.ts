@@ -241,6 +241,7 @@ export const quotasApi = {
   all:       () => get<AccountQuotaWithInfo[]>('/admin/quotas'),
   account:   (id: number) => get<AccountQuotaData>(`/admin/accounts/${id}/quota`),
   pool:      (id: number) => get<PoolQuotaAgg>(`/admin/pools/${id}/quotas`),
+  refresh:   () => post<{ message: string }>('/admin/quotas/refresh'),
 }
 
 export interface AccountQuotaData {

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, poolsApi, User, Pool, UserStats, Account } from '../lib/api'
 import { Plus, RotateCcw, Trash2, Edit2, Copy, Check, Clock, Gauge, Terminal, Link2, X } from 'lucide-react'
 import { useToast } from './ToastProvider'
+import { copyToClipboard } from '../lib/clipboard'
 
 function Badge({ active }: { active: boolean }) {
   return (
@@ -15,7 +16,7 @@ function Badge({ active }: { active: boolean }) {
 function CopyToken({ token }: { token: string }) {
   const [copied, setCopied] = useState(false)
   function copy() {
-    navigator.clipboard.writeText(token)
+    copyToClipboard(token)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -476,7 +477,7 @@ export default function Users() {
   const setupLinkMutation = useMutation({
     mutationFn: (userId: number) => usersApi.generateSetupLink(userId),
     onSuccess: (data, userId) => {
-      navigator.clipboard.writeText(`${window.location.origin}${data.url}`)
+      copyToClipboard(`${window.location.origin}${data.url}`)
       setSetupLinkCopied(userId)
       setTimeout(() => setSetupLinkCopied(null), 3000)
     },
@@ -547,7 +548,7 @@ export default function Users() {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         title="Copy ourclaude login command"
-                        onClick={() => navigator.clipboard.writeText(`ourclaude login ${window.location.origin} ${user.api_token}`)}
+                        onClick={() => copyToClipboard(`ourclaude login ${window.location.origin} ${user.api_token}`)}
                         className="p-1.5 text-gray-400 hover:text-brand-500 rounded"
                       >
                         <Terminal className="w-4 h-4" />

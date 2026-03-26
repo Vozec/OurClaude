@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"claude-proxy/internal/crypto"
@@ -42,19 +44,22 @@ type extraUsage struct {
 
 // Poller periodically fetches Anthropic usage for all OAuth accounts.
 type Poller struct {
-	db       *gorm.DB
-	enc      *crypto.Encryptor
-	settings *settings.Service
-	client   *http.Client
+	db              *gorm.DB
+	enc             *crypto.Encryptor
+	settings        *settings.Service
+	client          *http.Client
+	failCount       map[uint]int // consecutive failures per account
+	failCountMu     sync.Mutex
 }
 
 // New creates a quota poller.
 func New(db *gorm.DB, enc *crypto.Encryptor, svc *settings.Service) *Poller {
 	return &Poller{
-		db:       db,
-		enc:      enc,
-		settings: svc,
-		client:   &http.Client{Timeout: 15 * time.Second},
+		db:        db,
+		enc:       enc,
+		settings:  svc,
+		client:    &http.Client{Timeout: 15 * time.Second},
+		failCount: make(map[uint]int),
 	}
 }
 
@@ -90,9 +95,32 @@ func (p *Poller) pollAll() {
 	var accounts []database.ClaudeAccount
 	p.db.Where("account_type = ? AND status != ?", "oauth", "disabled").Find(&accounts)
 
+	interval := p.getInterval()
+
 	for _, acc := range accounts {
+		// Skip accounts in backoff (failed too many times recently)
+		p.failCountMu.Lock()
+		fails := p.failCount[acc.ID]
+		p.failCountMu.Unlock()
+		if fails > 0 {
+			// Exponential backoff: skip this cycle if backoff period not reached
+			backoffCycles := int(math.Min(float64(fails), 5)) // max 2^5 = 32 cycles
+			if fails > 0 && (fails%int(math.Pow(2, float64(backoffCycles-1)))) != 0 {
+				continue // Skip this poll cycle for this account
+			}
+		}
+
 		if err := p.fetchOne(acc); err != nil {
-			log.Printf("quota: account %d (%s): %v", acc.ID, acc.Name, err)
+			p.failCountMu.Lock()
+			p.failCount[acc.ID]++
+			count := p.failCount[acc.ID]
+			p.failCountMu.Unlock()
+
+			// Log only on first failure or every 10th consecutive failure
+			if count == 1 || count%10 == 0 {
+				log.Printf("quota: account %d (%s): %v (failures: %d, backoff: %s)", acc.ID, acc.Name, err, count, interval*time.Duration(int(math.Pow(2, math.Min(float64(count), 5)))))
+			}
+
 			// Store error but keep old data
 			p.db.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "account_id"}},
@@ -102,8 +130,22 @@ func (p *Poller) pollAll() {
 				Error:     err.Error(),
 				UpdatedAt: time.Now(),
 			})
+		} else {
+			// Success: reset failure count
+			p.failCountMu.Lock()
+			delete(p.failCount, acc.ID)
+			p.failCountMu.Unlock()
 		}
 	}
+}
+
+// PollNow triggers an immediate poll of all accounts (for manual refresh button).
+func (p *Poller) PollNow() {
+	// Reset all backoff counters
+	p.failCountMu.Lock()
+	p.failCount = make(map[uint]int)
+	p.failCountMu.Unlock()
+	go p.pollAll()
 }
 
 func (p *Poller) fetchOne(acc database.ClaudeAccount) error {
@@ -132,6 +174,9 @@ func (p *Poller) fetchOne(acc database.ClaudeAccount) error {
 		return fmt.Errorf("read: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return fmt.Errorf("rate limited (429) — will back off")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("API %d: %s", resp.StatusCode, string(body[:min(len(body), 200)]))
 	}

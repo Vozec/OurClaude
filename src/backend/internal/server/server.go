@@ -41,8 +41,9 @@ type Server struct {
 	webhooks    *webhook.Dispatcher
 	logStream   *sse.Broadcaster
 	statsStream *sse.Broadcaster
-	settings    *settings.Service
-	frontendFS  fs.FS
+	settings     *settings.Service
+	quotaPoller  *quota.Poller
+	frontendFS   fs.FS
 }
 
 func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
@@ -70,6 +71,7 @@ func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
 		logStream:   sse.New(),
 		statsStream: sse.New(),
 		settings:    settingsSvc,
+		quotaPoller: quota.New(db, enc, settingsSvc),
 		frontendFS:  frontendFS,
 	}
 }
@@ -161,11 +163,17 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Post("/api/admin/accounts/{id}/reset", accountsH.Reset)
 		r.Post("/api/admin/accounts/{id}/test", accountsH.Test)
 		r.Post("/api/admin/accounts/{id}/toggle", accountsH.ToggleStatus)
+		r.Post("/api/admin/accounts/import-credentials", accountsH.ImportCredentials)
 		r.Get("/api/admin/accounts/{id}/stats", accountsH.Stats)
 		r.Get("/api/admin/accounts/{id}/credentials", accountsH.Credentials)
 		r.Delete("/api/admin/accounts/{id}/pool", accountsH.Unlink)
 		r.Get("/api/admin/accounts/{id}/quota", accountsH.Quota)
 		r.Get("/api/admin/quotas", accountsH.AllQuotas)
+		r.Post("/api/admin/quotas/refresh", func(w http.ResponseWriter, r *http.Request) {
+			s.quotaPoller.PollNow()
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"message":"quota refresh triggered"}`))
+		})
 
 		// Stats
 		statsH := handlers.NewStatsHandler(s.db)
@@ -349,8 +357,7 @@ func (s *Server) Start() error {
 	s.poolMgr.StartHealthCheck(ctx, s.cfg.HealthCheckInterval, s.cfg.AnthropicURL)
 
 	// Start Anthropic quota poller
-	quotaPoller := quota.New(s.db, s.enc, s.settings)
-	quotaPoller.Start(ctx)
+	s.quotaPoller.Start(ctx)
 
 	router := s.SetupAdminRouter()
 

@@ -509,11 +509,58 @@ func (h *AccountsHandler) ToggleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newStatus := "active"
-	if account.Status == "active" {
+	if account.Status != "disabled" {
 		newStatus = "disabled"
 	}
 
 	h.db.Model(&account).Update("status", newStatus)
 	logAudit(h.db, r, "toggle_account", fmt.Sprintf("account:%s", account.Name), fmt.Sprintf("status=%s", newStatus))
 	writeJSON(w, http.StatusOK, map[string]string{"status": newStatus})
+}
+
+// POST /api/admin/accounts/import-credentials — import account from raw credentials.json
+func (h *AccountsHandler) ImportCredentials(w http.ResponseWriter, r *http.Request) {
+	var creds credentialsJSON
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid credentials JSON — expected {claudeAiOauth: {accessToken, refreshToken, expiresAt}}"))
+		return
+	}
+	if creds.ClaudeAiOauth.AccessToken == "" || creds.ClaudeAiOauth.RefreshToken == "" {
+		writeJSON(w, http.StatusBadRequest, errResp("missing accessToken or refreshToken in claudeAiOauth"))
+		return
+	}
+
+	var expiresAt time.Time
+	if creds.ClaudeAiOauth.ExpiresAt > 0 {
+		expiresAt = time.UnixMilli(creds.ClaudeAiOauth.ExpiresAt)
+	} else {
+		expiresAt = time.Now().Add(1 * time.Hour)
+	}
+
+	encAccess, err := h.enc.Encrypt(creds.ClaudeAiOauth.AccessToken)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt"))
+		return
+	}
+	encRefresh, err := h.enc.Encrypt(creds.ClaudeAiOauth.RefreshToken)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt"))
+		return
+	}
+
+	account := database.ClaudeAccount{
+		Name:         "Imported " + time.Now().Format("2006-01-02 15:04"),
+		AccountType:  "oauth",
+		AccessToken:  encAccess,
+		RefreshToken: encRefresh,
+		ExpiresAt:    expiresAt,
+		Status:       "active",
+	}
+	if err := h.db.Create(&account).Error; err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed to create account"))
+		return
+	}
+
+	logAudit(h.db, r, "import_credentials", fmt.Sprintf("account:%d", account.ID), "")
+	writeJSON(w, http.StatusCreated, account)
 }

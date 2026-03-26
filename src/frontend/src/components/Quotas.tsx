@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { quotasApi, poolsApi, AccountQuotaWithInfo, Pool } from '../lib/api'
-import { AlertTriangle, CheckCircle, Clock, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Clock, XCircle, RefreshCw } from 'lucide-react'
+import { useToast } from './ToastProvider'
 
 function UsageBar({ label, pct, resets, color }: { label: string; pct: number; resets?: string; color?: string }) {
   const barColor = color ?? (pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : pct >= 40 ? 'bg-blue-500' : 'bg-green-500')
@@ -118,6 +119,14 @@ export default function Quotas() {
 
   const { data: pools = [] } = useQuery({ queryKey: ['pools'], queryFn: poolsApi.list })
 
+  const toast = useToast()
+  const qc = useQueryClient()
+  const refreshMutation = useMutation({
+    mutationFn: quotasApi.refresh,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['anthropic-quotas'] }); toast('Quota refresh triggered', true) },
+    onError: (e: Error) => toast('Refresh failed: ' + e.message, false),
+  })
+
   // Filter logic
   const filtered = quotas.filter(q => {
     if (poolFilter) {
@@ -160,11 +169,21 @@ export default function Quotas() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Anthropic Quotas</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">
-          Real-time usage quotas from Anthropic — session limits, weekly limits, per-model caps.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Anthropic Quotas</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
+            Real-time usage quotas from Anthropic — session limits, weekly limits, per-model caps.
+          </p>
+        </div>
+        <button
+          onClick={() => refreshMutation.mutate()}
+          disabled={refreshMutation.isPending}
+          className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm hover:bg-brand-600 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
+          {refreshMutation.isPending ? 'Refreshing...' : 'Refresh now'}
+        </button>
       </div>
 
       {/* Summary cards */}
