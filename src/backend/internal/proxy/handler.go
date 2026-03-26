@@ -175,7 +175,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.authenticate(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "unauthorized — check your API token with 'ourclaude status' or re-login with 'ourclaude login'")
 		return
 	}
 

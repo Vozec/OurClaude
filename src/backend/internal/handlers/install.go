@@ -49,14 +49,15 @@ func (h *InstallHandler) Script(w http.ResponseWriter, r *http.Request) {
 
 	// Generate download links for all platforms
 	dlLinks := CreateLinksForUser(h.db, user.ID, 3)
+	autoShare := r.URL.Query().Get("no-share") != "1"
 
-	script := generateInstallScript(serverURL, user.APIToken, dlLinks)
+	script := generateInstallScript(serverURL, user.APIToken, dlLinks, autoShare)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(script))
 }
 
-func generateInstallScript(serverURL, apiToken string, dlLinks map[string]string) string {
+func generateInstallScript(serverURL, apiToken string, dlLinks map[string]string, autoShare bool) string {
 	var sb strings.Builder
 	sb.WriteString("#!/bin/bash\n")
 	sb.WriteString("set -euo pipefail\n\n")
@@ -104,8 +105,17 @@ func generateInstallScript(serverURL, apiToken string, dlLinks map[string]string
 	sb.WriteString("    fi\n")
 	sb.WriteString("fi\n\n")
 
-	sb.WriteString("# Auto-login\n")
-	sb.WriteString("ourclaude login \"$SERVER\" \"$TOKEN\"\n")
+	shareFlag := ""
+	if autoShare {
+		shareFlag = " --auto-share"
+	}
+	sb.WriteString("# Auto-login as the real user (not root)\n")
+	sb.WriteString("if [ -n \"${SUDO_USER:-}\" ]; then\n")
+	sb.WriteString("    echo \"Configuring for user: $SUDO_USER\"\n")
+	sb.WriteString(fmt.Sprintf("    sudo -u \"$SUDO_USER\" ourclaude login \"$SERVER\" \"$TOKEN\"%s\n", shareFlag))
+	sb.WriteString("else\n")
+	sb.WriteString(fmt.Sprintf("    ourclaude login \"$SERVER\" \"$TOKEN\"%s\n", shareFlag))
+	sb.WriteString("fi\n")
 	sb.WriteString("echo \"\"\n")
 	sb.WriteString("echo \"Done! Run 'ourclaude' to start using Claude.\"\n")
 

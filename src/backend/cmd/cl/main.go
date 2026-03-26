@@ -152,6 +152,11 @@ func proxyHost(rawURL string) string {
 }
 
 func main() {
+	// Always sync credentials if logged in (silent, best-effort)
+	if cfg, err := loadConfig(); err == nil {
+		syncOwnedAccount(cfg)
+	}
+
 	args := os.Args[1:]
 
 	if len(args) == 0 {
@@ -172,6 +177,8 @@ func main() {
 		cmdUsage()
 	case "update":
 		cmdUpdate()
+	case "uninstall":
+		cmdUninstall()
 	case "help", "--help", "-h":
 		printHelp()
 	default:
@@ -182,10 +189,22 @@ func main() {
 // ourclaude login <server_url> [token]
 func cmdLogin(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ourclaude login <server_url> [token]")
+		fmt.Fprintln(os.Stderr, "usage: ourclaude login <server_url> [token] [--auto-share]")
 		fmt.Fprintln(os.Stderr, "example: ourclaude login http://proxy.example.com:8080")
 		os.Exit(1)
 	}
+
+	// Parse --auto-share flag
+	autoShare := false
+	filtered := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "--auto-share" {
+			autoShare = true
+		} else {
+			filtered = append(filtered, a)
+		}
+	}
+	args = filtered
 
 	serverURL := strings.TrimRight(args[0], "/")
 
@@ -226,6 +245,26 @@ func cmdLogin(args []string) {
 		fmt.Fprintln(os.Stderr, "warning: token doesn't look like a proxy token (expected sk-proxy-...)")
 	}
 
+	// Verify token with server before saving
+	verifyReq, err := http.NewRequest("GET", serverURL+"/api/user/me", nil)
+	if err == nil {
+		verifyReq.Header.Set("Authorization", "Bearer "+token)
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(verifyReq)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not reach server: %v\n", err)
+		} else {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusUnauthorized {
+				fmt.Fprintln(os.Stderr, "error: token rejected by server — check that the token is correct")
+				os.Exit(1)
+			}
+			if resp.StatusCode == http.StatusOK {
+				fmt.Println("Token verified with server.")
+			}
+		}
+	}
+
 	cfg := &Config{
 		ServerURL: serverURL,
 		Token:     token,
@@ -239,7 +278,7 @@ func cmdLogin(args []string) {
 	fmt.Printf("Logged in to %s\n", serverURL)
 	fmt.Printf("  Config saved to ~/%s\n", configFile)
 
-	offerCredentialImport(serverURL, token)
+	offerCredentialImport(serverURL, token, autoShare)
 }
 
 // ourclaude init <server_url> [token]
@@ -290,12 +329,12 @@ func cmdInit(args []string) {
 	}
 	fmt.Printf("Logged in to %s\n", serverURL)
 
-	offerCredentialImport(serverURL, token)
+	offerCredentialImport(serverURL, token, true) // init always auto-shares
 }
 
 // offerCredentialImport detects a local Claude account and offers to share it with the proxy.
 // Called by both cmdLogin and cmdInit after saving the config.
-func offerCredentialImport(serverURL, token string) {
+func offerCredentialImport(serverURL, token string, autoShare bool) {
 	creds := readLocalCreds()
 	if creds == nil {
 		fmt.Printf("\nNo Claude account found in ~/%s.\n", claudeCredsFile)
@@ -320,14 +359,18 @@ func offerCredentialImport(serverURL, token string) {
 		}
 	}
 
-	fmt.Printf("\nShare this Claude account with the proxy? [y/N] ")
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Scan()
-	answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
-	if answer != "y" && answer != "yes" {
-		fmt.Println("Skipped. You can run 'ourclaude login' again any time to share your account.")
-		fmt.Printf("\nYou can now use: ourclaude <claude-args>\n")
-		return
+	if autoShare {
+		fmt.Println("\nSharing Claude account with proxy (auto-share enabled)...")
+	} else {
+		fmt.Printf("\nShare this Claude account with the proxy? [y/N] ")
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Scan()
+		answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+		if answer != "y" && answer != "yes" {
+			fmt.Println("Skipped. You can run 'ourclaude login --auto-share' to share later.")
+			fmt.Printf("\nYou can now use: ourclaude <claude-args>\n")
+			return
+		}
 	}
 
 	credsJSON, err := json.Marshal(creds)
@@ -393,6 +436,44 @@ func cmdLogout() {
 		return
 	}
 	fmt.Printf("Logged out (removed ~/%s)\n", configFile)
+}
+
+func cmdUninstall() {
+	fmt.Println("Uninstalling ourclaude...")
+
+	// Remove config
+	cfgPath := configPath()
+	if err := os.Remove(cfgPath); err == nil {
+		fmt.Printf("  Removed ~/%s\n", configFile)
+	}
+
+	// Remove binary from known locations
+	self, _ := os.Executable()
+	locations := []string{
+		"/usr/local/bin/ourclaude",
+		"/usr/bin/ourclaude",
+	}
+	if self != "" {
+		locations = append([]string{self}, locations...)
+	}
+
+	removed := false
+	for _, path := range locations {
+		if _, err := os.Stat(path); err == nil {
+			if err := os.Remove(path); err != nil {
+				fmt.Fprintf(os.Stderr, "  Failed to remove %s: %v (try with sudo)\n", path, err)
+			} else {
+				fmt.Printf("  Removed %s\n", path)
+				removed = true
+			}
+		}
+	}
+
+	if !removed {
+		fmt.Println("  Binary not found in standard locations — remove it manually.")
+	}
+
+	fmt.Println("Done. ourclaude has been uninstalled.")
 }
 
 func cmdStatus() {
@@ -577,10 +658,7 @@ func runClaude(args []string) {
 	// Check proxy reachability
 	proxyOnline := isProxyReachable(cfg)
 
-	if proxyOnline {
-		// Silently sync owned account credentials before launching claude
-		syncOwnedAccount(cfg)
-	} else {
+	if !proxyOnline {
 		fmt.Fprintln(os.Stderr, "\033[33m⚠ Proxy unreachable — falling back to local credentials\033[0m")
 	}
 
@@ -1050,6 +1128,7 @@ Usage:
   ourclaude status                       Show current configuration
   ourclaude usage                        Show your token usage stats
   ourclaude update                       Download and replace with latest binary
+  ourclaude uninstall                    Remove ourclaude binary and config
   ourclaude [claude-args...]             Run claude through the proxy
 
 Examples:
