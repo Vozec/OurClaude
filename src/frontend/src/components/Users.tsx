@@ -555,7 +555,7 @@ export default function Users() {
                   <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">
                     <Link to={'/users/' + user.id} className="hover:text-brand-500 hover:underline transition-colors">{user.name}</Link>
                   </td>
-                  <td className="px-6 py-4"><CopyToken token={user.api_token} /></td>
+                  <td className="px-6 py-4" onClick={e => e.stopPropagation()}><CopyToken token={user.api_token} /></td>
                   <td className="px-6 py-4"><PoolBadges user={user} /></td>
                   <td className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">{user.allowed_models ? <span className="font-mono text-xs truncate max-w-[120px] block">{user.allowed_models}</span> : '—'}</td>
                   <td className="px-6 py-4">

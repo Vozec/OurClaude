@@ -859,7 +859,7 @@ func cmdUpdate() {
 	}
 
 	// Write to a temp file next to the current executable.
-	selfPath, err := os.Executable()
+	selfPath, err = os.Executable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ourclaude: cannot find own path: %v\n", err)
 		os.Exit(1)
