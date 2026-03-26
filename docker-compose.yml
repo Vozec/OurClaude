@@ -16,7 +16,7 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD is required on first run}
       - DB_PATH=/data/claude-proxy.db
       - ANTHROPIC_URL=${ANTHROPIC_URL:-https://api.anthropic.com}
-      - OAUTH_REFRESH_URL=${OAUTH_REFRESH_URL:-https://console.anthropic.com/v1/auth/oauth2/token}
+      - OAUTH_REFRESH_URL=${OAUTH_REFRESH_URL:-https://console.anthropic.com/v1/oauth/token}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - JWT_EXPIRY_HOURS=${JWT_EXPIRY_HOURS:-24}
       - POOL_RESET_INTERVAL_MINUTES=${POOL_RESET_INTERVAL_MINUTES:-}

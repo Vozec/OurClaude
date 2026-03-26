@@ -555,8 +555,8 @@ export default function Accounts() {
                         </button>
                       )}
                       <button
-                        title={account.status === 'disabled' ? 'Enable' : account.status === 'active' ? 'Disable' : 'Reset to active'}
-                        onClick={() => isApiKey(account) || account.status === 'disabled' ? toggleMutation.mutate(account.id) : resetMutation.mutate(account.id)}
+                        title={account.status === 'disabled' ? 'Enable' : 'Disable'}
+                        onClick={() => toggleMutation.mutate(account.id)}
                         className="p-1.5 text-gray-400 hover:text-yellow-500 rounded"
                       >
                         {account.status === 'disabled' ? <Power className="w-4 h-4" /> : <RotateCcw className="w-4 h-4" />}

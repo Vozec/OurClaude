@@ -171,6 +171,12 @@ func New(db *gorm.DB, poolMgr *pool.Manager, upstream string, redisURL string, s
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// CORS preflight — no auth needed
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	start := time.Now()
 
 	user, err := h.authenticate(r)
@@ -640,6 +646,9 @@ func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, end
 	}
 
 	if isStreaming {
+		// Anthropic SSE uses \r\n line endings — normalize before splitting
+		body = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
+		body = bytes.ReplaceAll(body, []byte("\r"), []byte("\n"))
 		lines := bytes.Split(body, []byte("\n"))
 		for _, line := range lines {
 			if !bytes.HasPrefix(line, []byte("data: ")) {

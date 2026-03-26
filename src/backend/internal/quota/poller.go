@@ -50,6 +50,8 @@ type Poller struct {
 	client          *http.Client
 	failCount       map[uint]int // consecutive failures per account
 	failCountMu     sync.Mutex
+	pollTimes       []time.Time  // timestamps of recent polls for global rate limit
+	pollTimesMu     sync.Mutex
 }
 
 // New creates a quota poller.
@@ -88,10 +90,37 @@ func (p *Poller) getInterval() time.Duration {
 			return time.Duration(mins) * time.Minute
 		}
 	}
-	return 1 * time.Minute
+	return 3 * time.Minute // default: 1 poll every 3 minutes
+}
+
+// globalRateLimitOK returns true if we haven't exceeded 6 polls in the last 10 minutes.
+func (p *Poller) globalRateLimitOK() bool {
+	p.pollTimesMu.Lock()
+	defer p.pollTimesMu.Unlock()
+	cutoff := time.Now().Add(-10 * time.Minute)
+	// Prune old entries
+	fresh := p.pollTimes[:0]
+	for _, t := range p.pollTimes {
+		if t.After(cutoff) {
+			fresh = append(fresh, t)
+		}
+	}
+	p.pollTimes = fresh
+	return len(p.pollTimes) < 6
+}
+
+func (p *Poller) recordPoll() {
+	p.pollTimesMu.Lock()
+	p.pollTimes = append(p.pollTimes, time.Now())
+	p.pollTimesMu.Unlock()
 }
 
 func (p *Poller) pollAll() {
+	if !p.globalRateLimitOK() {
+		log.Println("quota: skipping poll cycle — global rate limit (6/10min) reached")
+		return
+	}
+
 	var accounts []database.ClaudeAccount
 	p.db.Where("account_type = ? AND status != ?", "oauth", "disabled").Find(&accounts)
 
@@ -110,6 +139,10 @@ func (p *Poller) pollAll() {
 			}
 		}
 
+		if !p.globalRateLimitOK() {
+			break // stop this cycle if we hit the global limit mid-batch
+		}
+		p.recordPoll()
 		if err := p.fetchOne(acc); err != nil {
 			p.failCountMu.Lock()
 			p.failCount[acc.ID]++

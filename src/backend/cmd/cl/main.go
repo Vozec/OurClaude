@@ -179,6 +179,8 @@ func main() {
 		cmdUpdate()
 	case "uninstall":
 		cmdUninstall()
+	case "mcp-sync":
+		cmdMCPSync()
 	case "help", "--help", "-h":
 		printHelp()
 	default:
@@ -605,6 +607,99 @@ func formatTokens(n int64) string {
 
 // syncOwnedAccount silently fetches the current credentials from the proxy
 // isProxyReachable checks if the proxy server responds within 3 seconds.
+func cmdMCPSync() {
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ourclaude: not logged in. Run: ourclaude login <server_url>")
+		os.Exit(1)
+	}
+
+	req, err := http.NewRequest("GET", cfg.ServerURL+"/api/user/mcp-servers", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.Token)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "server returned %d\n", resp.StatusCode)
+		os.Exit(1)
+	}
+
+	var servers []struct {
+		Name    string `json:"name"`
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Args    string `json:"args"`
+		URL     string `json:"url"`
+		Env     string `json:"env"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&servers); err != nil {
+		fmt.Fprintf(os.Stderr, "error parsing response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(servers) == 0 {
+		fmt.Println("No MCP servers configured on the proxy.")
+		return
+	}
+
+	// Build mcpServers config for Claude settings
+	mcpServers := map[string]interface{}{}
+	for _, s := range servers {
+		entry := map[string]interface{}{}
+		if s.Type == "http" || s.URL != "" {
+			entry["url"] = s.URL
+		} else {
+			entry["command"] = s.Command
+			if s.Args != "" {
+				var args []string
+				json.Unmarshal([]byte(s.Args), &args)
+				if len(args) > 0 {
+					entry["args"] = args
+				}
+			}
+		}
+		if s.Env != "" {
+			var env map[string]string
+			json.Unmarshal([]byte(s.Env), &env)
+			if len(env) > 0 {
+				entry["env"] = env
+			}
+		}
+		mcpServers[s.Name] = entry
+	}
+
+	// Merge into ~/.claude/settings.json
+	settingsPath := filepath.Join(os.Getenv("HOME"), ".claude", "settings.json")
+	existing := map[string]interface{}{}
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		json.Unmarshal(data, &existing)
+	}
+
+	existing["mcpServers"] = mcpServers
+
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0700); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	data, _ := json.MarshalIndent(existing, "", "  ")
+	if err := os.WriteFile(settingsPath, data, 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "error writing settings: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Synced %d MCP server(s) to ~/.claude/settings.json\n", len(servers))
+}
+
 func sudoUserHome() string {
 	u := os.Getenv("SUDO_USER")
 	if u == "" {
@@ -1182,6 +1277,7 @@ Usage:
   ourclaude usage                        Show your token usage stats
   ourclaude update                       Download and replace with latest binary
   ourclaude uninstall                    Remove ourclaude binary and config
+  ourclaude mcp-sync                     Sync MCP servers from proxy to local settings
   ourclaude [claude-args...]             Run claude through the proxy
 
 Examples:

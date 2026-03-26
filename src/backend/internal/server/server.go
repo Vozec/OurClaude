@@ -58,7 +58,7 @@ func New(cfg *config.Config, db *gorm.DB, frontendFS fs.FS) *Server {
 		"prompt_cache_inject":  fmt.Sprintf("%v", cfg.PromptCacheInject),
 		"response_cache_ttl":   fmt.Sprintf("%d", int(cfg.ResponseCacheTTL.Seconds())),
 		"user_max_rpm":         fmt.Sprintf("%d", cfg.UserMaxRPM),
-		"quota_poll_interval":  "1",
+		"quota_poll_interval":  "3",
 	})
 
 	return &Server{
