@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -166,10 +167,10 @@ func (m *Manager) GetAccountForPool(poolID uint) (*database.ClaudeAccount, error
 		return nil, err
 	}
 
-	// 1. Try active OAuth accounts first
+	// 1. Try active OAuth accounts first (scored pick: drain mode / reset-aware)
 	oauthActive := filterByTypeAndStatus(accounts, "oauth", "active")
 	if len(oauthActive) > 0 {
-		return m.pickAndValidate(poolID, oauthActive)
+		return m.scoredPick(oauthActive)
 	}
 
 	// 2. Fallback: try enabled API keys
@@ -240,6 +241,55 @@ func (m *Manager) pickAndValidateSoft(poolID uint, candidates []database.ClaudeA
 	}
 
 	return &account, nil
+}
+
+// scoredPick selects the best OAuth account based on quota data.
+// Accounts closer to their 5-hour reset window with usage below 95% are
+// prioritised so their remaining capacity is drained before the reset.
+func (m *Manager) scoredPick(candidates []database.ClaudeAccount) (*database.ClaudeAccount, error) {
+	type scored struct {
+		account database.ClaudeAccount
+		score   float64
+	}
+
+	var items []scored
+	for _, acc := range candidates {
+		var q database.AccountQuota
+		score := 50.0 // default if no quota data
+		if m.db.Where("account_id = ?", acc.ID).First(&q).Error == nil {
+			score = float64(q.FiveHourPct)
+			// Drain mode: if reset is imminent and usage below 95%, prioritize it
+			if q.FiveHourResets != "" {
+				if t, err := time.Parse(time.RFC3339, q.FiveHourResets); err == nil {
+					minutesUntilReset := time.Until(t).Minutes()
+					if minutesUntilReset > 0 && minutesUntilReset < 30 && q.FiveHourPct < 95 {
+						score *= 0.2 // Heavy bonus — drain this account first
+					} else if minutesUntilReset > 0 && minutesUntilReset < 60 {
+						score *= 0.5 // Moderate bonus
+					}
+				}
+			}
+		}
+		items = append(items, scored{account: acc, score: score})
+	}
+
+	// Sort by score ascending (lowest = best candidate)
+	sort.Slice(items, func(i, j int) bool { return items[i].score < items[j].score })
+
+	// Try candidates in order until one validates successfully
+	for _, item := range items {
+		account := item.account
+		if err := m.decryptAccount(&account); err != nil {
+			continue
+		}
+		if err := m.oauth.EnsureValid(m.db, &account); err != nil {
+			m.MarkError(account.ID, err.Error())
+			continue
+		}
+		return &account, nil
+	}
+
+	return nil, ErrNoActiveAccounts
 }
 
 func (m *Manager) MarkExhausted(accountID uint) {

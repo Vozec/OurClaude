@@ -1,11 +1,10 @@
 package oauth
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -41,16 +40,17 @@ type refreshResponse struct {
 }
 
 func (r *Refresher) RefreshToken(db *gorm.DB, account *database.ClaudeAccount) error {
-	form := url.Values{}
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", account.RefreshToken)
-	form.Set("client_id", claudeClientID)
+	body, _ := json.Marshal(map[string]string{
+		"grant_type":    "refresh_token",
+		"refresh_token": account.RefreshToken,
+		"client_id":     claudeClientID,
+	})
 
-	req, err := http.NewRequest("POST", r.refreshURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequest("POST", r.refreshURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := r.client.Do(req)
 	if err != nil {

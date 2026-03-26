@@ -8,75 +8,57 @@
 - [x] `GET /api/admin/teams/{id}` endpoint added
 - [x] `team_id` in User Create/Update API
 - [x] Missing `logAudit` on: Account Update, MCP Update, Settings Update, Team Update
-- [ ] Logs show 0 tokens and "-" model — needs investigation with real traffic
+- [x] Logs show 0 tokens and "-" model — fixed \r\n SSE parsing
+- [x] Token refresh 404 — fixed: JSON body instead of form-encoded
 
 ## HIGH — UX from Opium comparison
 
-- [ ] Drain mode / reset-aware scheduling — prefer accounts nearing reset
-- [ ] Account health score — weighted `(usage_5h × 2) + usage_7d`
+- [x] Drain mode / reset-aware scheduling — scoredPick with 5h reset bonus
+- [x] Account health score — weighted scoring in scoredPick
 
 ## HIGH — Navigation & Layout
 
 - [x] Sidebar grouped into sections (Management / Monitoring / Configuration)
-- [ ] Collapsible sidebar for smaller screens
-- [ ] Highlight nav items with critical alerts
+- [x] Collapsible sidebar for smaller screens
+- [x] Highlight nav items with critical alerts
 
 ## HIGH — Missing detail pages & views
 
 - [x] Team detail page with members, budget, edit/delete
 - [x] PoolDetail: replace ∞ with "Unlimited", quota progress bars
-- [ ] PoolDetail: "Add Account to Pool" button
-- [ ] Pool inline edit
-
-## IMPORTANT — Dashboard
-
-- [x] Combined status badges into single line "8 active · 2 exhausted · 1 error"
-- [x] Tooltip on "Prompt Cache" explaining savings
+- [x] PoolDetail: "Add Account to Pool" button
+- [x] Pool inline edit
 
 ## IMPORTANT — Account/User detail
 
-- [ ] AccountDetail: absolute token counts on quota bars
-- [ ] AccountDetail: timestamp on error messages
-- [ ] UserDetail: countdown for token expiry
-- [ ] UserDetail: "No restrictions" instead of blank
+- [x] AccountDetail: absolute token counts on quota bars
+- [x] AccountDetail: timestamp on error messages
+- [x] UserDetail: countdown for token expiry
+- [x] UserDetail: "No restrictions" instead of blank
 
 ## IMPORTANT — Quotas page
 
 - [x] Color legend (Red/Amber/Green)
 - [x] Stale data warning (>1h old)
-- [ ] Sort quota bars by severity
+- [x] Sort quota bars by severity
 
 ## IMPORTANT — Logs page
 
 - [x] Page count display "Showing X of Y"
 - [x] Live indicator (pulsing red dot)
-- [ ] Active filter pills (removable)
+- [x] Active filter pills (removable)
 
 ## IMPORTANT — Pools page
 
-- [ ] Truncate model list: show 3 + "+X more"
-- [ ] Show pool quota usage
-
-## IMPORTANT — Invites
-
-- [x] Countdown format ("Expires in 2h 15m")
-- [x] Status badges (Pending / Used / Expired)
-
-## IMPORTANT — Users
-
-- [x] Help text on Allowed Models, IP Whitelist, Extra Headers
-- [x] Team select in Create/Edit modals
-
-## IMPORTANT — SetupLink
-
-- [x] Auto-detect OS and highlight matching platform
+- [x] Truncate model list: show 3 + "+X more"
+- [x] Show pool quota usage
 
 ## NICE-TO-HAVE
 
-- [ ] Heatmap: explain units
-- [ ] Cost breakdown section
-- [ ] Manual TOTP key entry
-- [ ] 2FA backup codes
-- [ ] Search/filter on all list pages
-- [ ] Login spinner
-- [ ] Teams member count column
+- [x] Heatmap: explain units
+- [x] Cost breakdown section
+- [x] Manual TOTP key entry
+- [x] 2FA backup codes
+- [x] Search/filter on all list pages
+- [x] Login spinner
+- [x] Teams member count column
