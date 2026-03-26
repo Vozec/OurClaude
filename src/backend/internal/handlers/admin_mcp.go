@@ -125,5 +125,6 @@ func (h *MCPHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errResp("not found"))
 		return
 	}
+	logAudit(h.db, r, "update_mcp_server", "mcp:"+server.Name, "")
 	writeJSON(w, http.StatusOK, server)
 }

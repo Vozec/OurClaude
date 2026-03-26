@@ -201,6 +201,7 @@ func (h *AccountsHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	var account database.ClaudeAccount
 	h.db.Preload("Pools").First(&account, id)
+	logAudit(h.db, r, "update_account", fmt.Sprintf("account:%s", account.Name), "")
 	writeJSON(w, http.StatusOK, account)
 }
 

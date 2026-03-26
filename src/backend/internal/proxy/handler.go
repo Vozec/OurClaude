@@ -372,6 +372,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Pool-level model restriction
+	if poolRecord.AllowedModels != "" {
+		if !modelAllowed(body, poolRecord.AllowedModels) {
+			writeError(w, http.StatusForbidden, "model not allowed in this pool")
+			return
+		}
+	}
+
 	// Prompt cache injection
 	if h.settings.GetBool("prompt_cache_inject") {
 		body = injectPromptCache(body)

@@ -65,6 +65,7 @@ export const usersApi = {
                   ip_whitelist?: string
                   monthly_budget_usd?: number
                   extra_headers?: string
+                  team_id?: number
                 }) => post<User>('/admin/users', body),
   update:      (id: number, body: Partial<{
                   name: string
@@ -77,6 +78,7 @@ export const usersApi = {
                   ip_whitelist: string
                   monthly_budget_usd: number
                   extra_headers: string
+                  team_id: number | null
                 }>) => put<User>(`/admin/users/${id}`, body),
   delete:           (id: number) => del(`/admin/users/${id}`),
   rotateToken:      (id: number) => post<{ api_token: string }>(`/admin/users/${id}/rotate-token`),
@@ -128,10 +130,10 @@ export const statsApi = {
     return get<UsagePage>(`/admin/stats/usage?${q}`)
   },
   byUser:      () => get<UserStat[]>('/admin/stats/by-user'),
-  byDay:       () => get<DayStat[]>('/admin/stats/by-day'),
-  byModel:     () => get<ModelStat[]>('/admin/stats/by-model'),
-  latency:     () => get<LatencyStat[]>('/admin/stats/latency'),
-  byModelDay:  () => get<ModelDayStat[]>('/admin/stats/by-model-day'),
+  byDay:       (days?: number) => get<DayStat[]>(`/admin/stats/by-day${days ? `?days=${days}` : ''}`),
+  byModel:     (days?: number) => get<ModelStat[]>(`/admin/stats/by-model${days ? `?days=${days}` : ''}`),
+  latency:     (days?: number) => get<LatencyStat[]>(`/admin/stats/latency${days ? `?days=${days}` : ''}`),
+  byModelDay:  (days?: number) => get<ModelDayStat[]>(`/admin/stats/by-model-day${days ? `?days=${days}` : ''}`),
   heatmap:     (days?: number) => get<HeatmapPoint[]>(`/admin/stats/heatmap${days ? `?days=${days}` : ''}`),
   sessions:    (hours?: number) => get<SessionStat[]>(`/admin/stats/sessions${hours ? `?hours=${hours}` : ''}`),
   exportURL:   (params?: { user_id?: number; model?: string; status_class?: string; endpoint?: string }) => {
@@ -323,6 +325,7 @@ export interface User {
   ip_whitelist: string
   monthly_budget_usd: number
   extra_headers: string
+  team_id?: number
   created_at: string
 }
 

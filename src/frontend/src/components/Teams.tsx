@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { teamsApi, Team } from '../lib/api'
 import { Plus, Trash2, Pencil } from 'lucide-react'
@@ -121,7 +122,9 @@ export default function Teams() {
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
               {teams.map(t => (
                 <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                  <td className="px-6 py-3 font-medium text-gray-900 dark:text-white">{t.name}</td>
+                  <td className="px-6 py-3 font-medium text-gray-900 dark:text-white">
+                    <Link to={'/teams/' + t.id} className="hover:text-brand-500 hover:underline">{t.name}</Link>
+                  </td>
                   <td className="px-6 py-3 text-gray-500 dark:text-gray-400">
                     {t.monthly_budget_usd > 0 ? `$${t.monthly_budget_usd.toFixed(2)}` : 'Unlimited'}
                   </td>

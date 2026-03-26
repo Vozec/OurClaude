@@ -140,18 +140,22 @@ func (h *PoolsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if users are assigned
-	var count int64
-	h.db.Model(&database.User{}).Where("pool_id = ?", id).Count(&count)
-	if count > 0 {
-		writeJSON(w, http.StatusConflict, errResp("cannot delete pool with assigned users"))
+	var p database.Pool
+	if err := h.db.First(&p, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("pool not found"))
 		return
 	}
+
+	// Clean up join tables
+	h.db.Where("pool_id = ?", id).Delete(&database.AccountPool{})
+	h.db.Where("pool_id = ?", id).Delete(&database.UserPool{})
+	h.db.Where("pool_id = ?", id).Delete(&database.InvitePool{})
 
 	if err := h.db.Delete(&database.Pool{}, id).Error; err != nil {
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to delete pool"))
 		return
 	}
+	logAudit(h.db, r, "delete_pool", "pool:"+p.Name, "")
 	writeJSON(w, http.StatusOK, map[string]string{"message": "pool deleted"})
 }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { accountsApi, poolsApi, usersApi, Account, Pool, User } from '../lib/api'
+import { accountsApi, poolsApi, usersApi, quotasApi, Account, Pool, User, AccountQuotaData } from '../lib/api'
+import { Link } from 'react-router-dom'
 import { Plus, Trash2, RefreshCw, RotateCcw, CheckCircle, AlertCircle, Clock, X, KeyRound, Pencil, Link2Off, BarChart2, Power, Key } from 'lucide-react'
 import { useToast } from './ToastProvider'
 import { copyToClipboard } from '../lib/clipboard'
@@ -118,6 +119,14 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
                 value={credJson} onChange={e => setCredJson(e.target.value)}
                 placeholder={placeholder}
               />
+              <div className="mt-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Or import via curl from a machine with Claude logged in:</p>
+                <code className="block text-xs text-gray-700 dark:text-gray-300 font-mono break-all bg-gray-100 dark:bg-gray-800 rounded px-2 py-1.5">
+                  curl -s -X POST {window.location.origin}/api/admin/accounts -H &quot;Content-Type: application/json&quot; -d &apos;{'{'}
+                  &quot;name&quot;:&quot;My Account&quot;, &quot;credentials_json&quot;:&apos;&quot;$(cat ~/.claude/.credentials.json)&quot;&apos;{'}'}
+                  &apos;
+                </code>
+              </div>
             </div>
           ) : (
             <div>
@@ -250,11 +259,28 @@ function CredentialsModal({ account, onClose }: { account: Account; onClose: () 
   )
 }
 
+function QuotaBar({ label, pct, resets }: { label: string; pct: number; resets?: string }) {
+  const color = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-green-500'
+  return (
+    <div className="mb-3">
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-gray-700 dark:text-gray-300">{label}</span>
+        <span className={pct >= 90 ? 'text-red-500 font-medium' : 'text-gray-500'}>{pct}%{resets ? ` — ${resets}` : ''}</span>
+      </div>
+      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+        <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+      </div>
+    </div>
+  )
+}
+
 function QuotaModal({ account, onClose }: { account: Account; onClose: () => void }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ['account-quota', account.id],
-    queryFn: () => accountsApi.quota(account.id),
+    queryFn: () => quotasApi.account(account.id),
   })
+
+  const quota = data as AccountQuotaData | undefined
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -265,10 +291,31 @@ function QuotaModal({ account, onClose }: { account: Account; onClose: () => voi
         </div>
         {isLoading && <p className="text-sm text-gray-400 dark:text-gray-500 py-4 text-center">Fetching from Claude.ai...</p>}
         {error && <p className="text-sm text-red-500">{(error as Error).message}</p>}
-        {data !== undefined && (
-          <pre className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 text-xs font-mono overflow-auto max-h-96 text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-all">
-            {JSON.stringify(data as object, null, 2)}
-          </pre>
+        {quota && !quota.error && (
+          <div>
+            <QuotaBar label="5-hour usage" pct={quota.five_hour_pct} resets={quota.five_hour_resets} />
+            <QuotaBar label="7-day usage" pct={quota.seven_day_pct} resets={quota.seven_day_resets} />
+            {quota.opus_pct != null && (
+              <QuotaBar label="Opus" pct={quota.opus_pct} resets={quota.opus_resets} />
+            )}
+            {quota.sonnet_pct != null && (
+              <QuotaBar label="Sonnet" pct={quota.sonnet_pct} resets={quota.sonnet_resets} />
+            )}
+            {quota.extra_enabled && (
+              <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Extra usage</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  {quota.extra_used ?? 0} / {quota.extra_limit ?? '∞'}
+                </p>
+              </div>
+            )}
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-4">
+              Updated {new Date(quota.updated_at).toLocaleString()}
+            </p>
+          </div>
+        )}
+        {quota?.error && (
+          <p className="text-sm text-red-500 py-2">{quota.error}</p>
         )}
       </div>
     </div>
@@ -450,7 +497,7 @@ export default function Accounts() {
                 <tr key={account.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">{account.name}</p>
+                      <Link to={'/accounts/' + account.id} className="text-sm font-medium text-gray-900 dark:text-white hover:text-brand-500 hover:underline">{account.name}</Link>
                       <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isApiKey(account) ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'}`}>
                         {isApiKey(account) ? 'API Key' : 'OAuth'}
                       </span>

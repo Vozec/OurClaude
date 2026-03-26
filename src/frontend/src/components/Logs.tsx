@@ -173,9 +173,9 @@ export default function Logs() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setLive(l => !l)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${live ? 'bg-green-100 text-green-700 border border-green-300' : 'border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300'}`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${live ? 'bg-red-50 text-red-700 border border-red-300 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800' : 'border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300'}`}
           >
-            {live && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />}
+            {live && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
             {live ? 'Live' : 'Go Live'}
           </button>
           <select
@@ -310,6 +310,7 @@ export default function Logs() {
         <div className="flex items-center justify-between">
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Page {page} of {totalPages}
+            {data && <span className="ml-2 text-gray-400">— Showing {limit} of {data.total} logs</span>}
           </p>
           <div className="flex gap-2">
             <button

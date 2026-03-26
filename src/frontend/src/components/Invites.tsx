@@ -212,17 +212,28 @@ export default function Invites() {
                         : <span className="text-xs text-gray-400 dark:text-gray-500">—</span>}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">
-                      {new Date(invite.expires_at).toLocaleString()}
+                      {(() => {
+                        if (invite.used_at) return new Date(invite.expires_at).toLocaleString()
+                        const diffMs = new Date(invite.expires_at).getTime() - Date.now()
+                        if (diffMs <= 0) return 'Expired'
+                        const hours = Math.floor(diffMs / 3_600_000)
+                        const mins = Math.floor((diffMs % 3_600_000) / 60_000)
+                        if (hours >= 24) {
+                          const days = Math.floor(hours / 24)
+                          return `Expires in ${days}d ${hours % 24}h`
+                        }
+                        return `Expires in ${hours}h ${mins}m`
+                      })()}
                     </td>
                     <td className="px-6 py-4">
                       {invite.used_at ? (
-                        <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-500">
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                           Used by {invite.used_by}
                         </span>
                       ) : expired ? (
-                        <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-600">Expired</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">Expired</span>
                       ) : (
-                        <span className="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700">Active</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">Pending</span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">

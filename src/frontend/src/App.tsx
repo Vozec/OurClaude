@@ -20,8 +20,11 @@ import ModelAliases from './components/ModelAliases'
 import Sessions from './components/Sessions'
 import InviteUse from './components/InviteUse'
 import PoolDetail from './components/PoolDetail'
+import AccountDetail from './components/AccountDetail'
+import UserDetail from './components/UserDetail'
 import SetupLink from './components/SetupLink'
 import Teams from './components/Teams'
+import TeamDetail from './components/TeamDetail'
 import MCPServers from './components/MCPServers'
 import Quotas from './components/Quotas'
 import { ToastProvider } from './components/ToastProvider'
@@ -92,6 +95,8 @@ function PrivateRoutes() {
           <Route path="/pools"     element={<Pools />} />
           <Route path="/pools/:id" element={<PoolDetail />} />
           <Route path="/accounts"  element={<Accounts />} />
+          <Route path="/accounts/:id" element={<AccountDetail />} />
+          <Route path="/users/:id" element={<UserDetail />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/logs"      element={<Logs />} />
           <Route path="/settings"  element={<Settings />} />
@@ -103,6 +108,7 @@ function PrivateRoutes() {
           <Route path="/aliases"  element={<ModelAliases />} />
           <Route path="/sessions" element={<Sessions />} />
           <Route path="/teams" element={<Teams />} />
+          <Route path="/teams/:id" element={<TeamDetail />} />
           <Route path="/mcp-servers" element={<MCPServers />} />
           <Route path="/quotas" element={<Quotas />} />
         </Routes>

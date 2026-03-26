@@ -92,7 +92,7 @@ function AccountRow({ account, poolId }: { account: Account; poolId: number }) {
 
   return (
     <>
-      <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750">
+      <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
         <td className="px-5 py-3">
           <p className="text-sm font-medium text-gray-900 dark:text-white">{account.name}</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -188,6 +188,46 @@ export default function PoolDetail() {
             {pool.daily_token_quota > 0 && <span>Daily quota: {fmtTokens(pool.daily_token_quota)}</span>}
             {pool.monthly_token_quota > 0 && <span>Monthly quota: {fmtTokens(pool.monthly_token_quota)}</span>}
           </div>
+          {(pool.daily_token_quota > 0 || pool.monthly_token_quota > 0) && statsData && (
+            <div className="flex flex-col gap-2 mt-3 max-w-md">
+              {pool.daily_token_quota > 0 && (() => {
+                const used = statsData.today.input_tokens + statsData.today.output_tokens
+                const pct = Math.min(100, (used / pool.daily_token_quota) * 100)
+                return (
+                  <div>
+                    <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <span>Daily usage</span>
+                      <span>{fmtTokens(used)} / {fmtTokens(pool.daily_token_quota)} ({pct.toFixed(0)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-brand-500'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })()}
+              {pool.monthly_token_quota > 0 && (() => {
+                const used = statsData.month.input_tokens + statsData.month.output_tokens
+                const pct = Math.min(100, (used / pool.monthly_token_quota) * 100)
+                return (
+                  <div>
+                    <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <span>Monthly usage</span>
+                      <span>{fmtTokens(used)} / {fmtTokens(pool.monthly_token_quota)} ({pct.toFixed(0)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-brand-500'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
         </div>
       </div>
 
@@ -268,15 +308,15 @@ export default function PoolDetail() {
             </thead>
             <tbody>
               {users.map((u: User) => (
-                <tr key={u.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750">
+                <tr key={u.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
                   <td className="px-5 py-3 font-medium text-gray-900 dark:text-white">{u.name}</td>
                   <td className="px-5 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                       {u.active ? 'Active' : 'Disabled'}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-gray-500 dark:text-gray-400 text-xs">{u.daily_token_quota ? fmtTokens(u.daily_token_quota) : '∞'}</td>
-                  <td className="px-5 py-3 text-gray-500 dark:text-gray-400 text-xs">{u.monthly_token_quota ? fmtTokens(u.monthly_token_quota) : '∞'}</td>
+                  <td className="px-5 py-3 text-gray-500 dark:text-gray-400 text-xs">{u.daily_token_quota ? fmtTokens(u.daily_token_quota) : 'Unlimited'}</td>
+                  <td className="px-5 py-3 text-gray-500 dark:text-gray-400 text-xs">{u.monthly_token_quota ? fmtTokens(u.monthly_token_quota) : 'Unlimited'}</td>
                   <td className="px-5 py-3 text-gray-400 dark:text-gray-500 text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
                 </tr>
               ))}

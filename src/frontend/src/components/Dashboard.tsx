@@ -1,20 +1,31 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { statsApi, type OverviewStats } from '../lib/api'
-import { MessageSquare, Zap, Users, Server, ArrowRight, AlertTriangle, DollarSign, Database } from 'lucide-react'
+import { MessageSquare, Zap, Users, Server, ArrowRight, AlertTriangle, DollarSign, Database, Info } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-function StatCard({ label, value, sub, icon: Icon, color }: {
+function StatCard({ label, value, sub, icon: Icon, color, tooltip }: {
   label: string
   value: string | number
   sub?: string
   icon: React.ElementType
   color: string
+  tooltip?: string
 }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
       <div className="flex items-center justify-between mb-4">
-        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">{label}</span>
+        <span className="text-sm font-medium text-gray-500 dark:text-gray-400 flex items-center gap-1">
+          {label}
+          {tooltip && (
+            <span className="relative group">
+              <Info className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 text-xs text-white bg-gray-900 dark:bg-gray-700 rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                {tooltip}
+              </span>
+            </span>
+          )}
+        </span>
         <div className={`w-9 h-9 rounded-lg ${color} flex items-center justify-center`}>
           <Icon className="w-5 h-5 text-white" />
         </div>
@@ -25,20 +36,29 @@ function StatCard({ label, value, sub, icon: Icon, color }: {
   )
 }
 
-function StatusBadge({ status, count }: { status: string; count: number }) {
-  const colors: Record<string, string> = {
-    active:    'bg-green-100 text-green-700',
-    exhausted: 'bg-yellow-100 text-yellow-700',
-    error:     'bg-red-100 text-red-700',
+function StatusSummaryLine({ statuses }: { statuses: { status: string; count: number }[] }) {
+  const colorMap: Record<string, string> = {
+    active:    'text-green-600 dark:text-green-400',
+    exhausted: 'text-yellow-600 dark:text-yellow-400',
+    error:     'text-red-600 dark:text-red-400',
+  }
+  const dotMap: Record<string, string> = {
+    active:    'bg-green-500',
+    exhausted: 'bg-yellow-500',
+    error:     'bg-red-500',
   }
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-100 text-gray-700'}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${
-        status === 'active' ? 'bg-green-500' :
-        status === 'exhausted' ? 'bg-yellow-500' : 'bg-red-500'
-      }`} />
-      {count} {status}
-    </span>
+    <p className="text-sm text-gray-700 dark:text-gray-300">
+      {statuses.map((s, i) => (
+        <span key={s.status}>
+          {i > 0 && <span className="text-gray-400 mx-1">&middot;</span>}
+          <span className={`inline-flex items-center gap-1 ${colorMap[s.status] ?? ''}`}>
+            <span className={`w-1.5 h-1.5 rounded-full inline-block ${dotMap[s.status] ?? 'bg-gray-500'}`} />
+            {s.count} {s.status}
+          </span>
+        </span>
+      ))}
+    </p>
   )
 }
 
@@ -182,6 +202,7 @@ export default function Dashboard() {
           })()}
           icon={Database}
           color="bg-teal-500"
+          tooltip="Cache reads save ~$2.70/MTok vs regular input tokens"
         />
         <StatCard
           label="Active Users"
@@ -202,11 +223,7 @@ export default function Dashboard() {
       {(data.account_statuses ?? []).length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
           <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Account Status</h2>
-          <div className="flex flex-wrap gap-2">
-            {(data.account_statuses ?? []).map(s => (
-              <StatusBadge key={s.status} status={s.status} count={s.count} />
-            ))}
-          </div>
+          <StatusSummaryLine statuses={data.account_statuses ?? []} />
         </div>
       )}
 

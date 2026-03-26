@@ -8,24 +8,34 @@ import {
   Moon, Sun, UsersRound, Plug, Gauge
 } from 'lucide-react'
 
-const navItems = [
-  { path: '/',          label: 'Dashboard',     icon: LayoutDashboard },
-  { path: '/users',     label: 'Users',         icon: Users },
-  { path: '/teams',     label: 'Teams',         icon: UsersRound },
-  { path: '/pools',     label: 'Pools',         icon: Layers },
-  { path: '/accounts',  label: 'Accounts',      icon: Server },
-  { path: '/analytics', label: 'Analytics',     icon: BarChart2 },
-  { path: '/quotas',    label: 'Quotas',        icon: Gauge },
-  { path: '/admins',    label: 'Admin Users',   icon: ShieldCheck },
-  { path: '/webhooks',  label: 'Webhooks',      icon: Webhook },
-  { path: '/invites',   label: 'Invites',       icon: Mail },
-  { path: '/downloads', label: 'Downloads',     icon: Download },
-  { path: '/aliases',   label: 'Model Aliases', icon: ArrowLeftRight },
-  { path: '/sessions',  label: 'Sessions',      icon: MonitorSmartphone },
-  { path: '/mcp-servers', label: 'MCP Servers', icon: Plug },
-  { path: '/logs',      label: 'Logs',          icon: ScrollText },
-  { path: '/audit',     label: 'Audit Log',     icon: ClipboardList },
-  { path: '/settings',  label: 'Settings',      icon: Settings },
+const navGroups = [
+  { items: [
+    { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+  ]},
+  { label: 'Management', items: [
+    { path: '/users', label: 'Users', icon: Users },
+    { path: '/teams', label: 'Teams', icon: UsersRound },
+    { path: '/pools', label: 'Pools', icon: Layers },
+    { path: '/accounts', label: 'Accounts', icon: Server },
+  ]},
+  { label: 'Monitoring', items: [
+    { path: '/analytics', label: 'Analytics', icon: BarChart2 },
+    { path: '/quotas', label: 'Quotas', icon: Gauge },
+    { path: '/logs', label: 'Logs', icon: ScrollText },
+    { path: '/audit', label: 'Audit Log', icon: ClipboardList },
+  ]},
+  { label: 'Configuration', items: [
+    { path: '/admins', label: 'Admin Users', icon: ShieldCheck },
+    { path: '/webhooks', label: 'Webhooks', icon: Webhook },
+    { path: '/invites', label: 'Invites', icon: Mail },
+    { path: '/downloads', label: 'Downloads', icon: Download },
+    { path: '/aliases', label: 'Model Aliases', icon: ArrowLeftRight },
+    { path: '/sessions', label: 'Sessions', icon: MonitorSmartphone },
+    { path: '/mcp-servers', label: 'MCP Servers', icon: Plug },
+  ]},
+  { items: [
+    { path: '/settings', label: 'Settings', icon: Settings },
+  ]},
 ]
 
 interface LayoutProps {
@@ -144,9 +154,16 @@ export default function Layout({ admin, children }: LayoutProps) {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 overflow-y-auto">
-          <div className="space-y-0.5">
-            {navItems.map(item => <NavLink key={item.path} {...item} />)}
-          </div>
+          {navGroups.map((group, i) => (
+            <div key={i} className={i > 0 ? 'mt-4' : ''}>
+              {group.label && (
+                <div className="px-3 mb-1 text-xs font-medium text-gray-500 uppercase tracking-wider">{group.label}</div>
+              )}
+              <div className="space-y-0.5">
+                {group.items.map(item => <NavLink key={item.path} {...item} />)}
+              </div>
+            </div>
+          ))}
         </nav>
 
         {/* Footer */}

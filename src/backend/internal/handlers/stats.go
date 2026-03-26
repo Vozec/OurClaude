@@ -292,7 +292,13 @@ func (h *StatsHandler) ByDay(w http.ResponseWriter, r *http.Request) {
 		OutputTokens int64  `json:"output_tokens"`
 	}
 
-	since := time.Now().AddDate(0, 0, -30)
+	days := 30
+	if d := r.URL.Query().Get("days"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 && v <= 365 {
+			days = v
+		}
+	}
+	since := time.Now().AddDate(0, 0, -days)
 
 	var rows []row
 	h.db.Model(&database.UsageLog{}).
@@ -306,7 +312,13 @@ func (h *StatsHandler) ByDay(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *StatsHandler) Latency(w http.ResponseWriter, r *http.Request) {
-	since := time.Now().AddDate(0, 0, -30)
+	days := 30
+	if d := r.URL.Query().Get("days"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 && v <= 365 {
+			days = v
+		}
+	}
+	since := time.Now().AddDate(0, 0, -days)
 
 	// Fetch all (model, latency_ms) pairs — compute percentiles in Go.
 	type rawRow struct {
@@ -360,9 +372,15 @@ func (h *StatsHandler) ByModel(w http.ResponseWriter, r *http.Request) {
 		EstimatedCost float64 `json:"estimated_cost_usd"`
 	}
 
+	q := h.db.Model(&database.UsageLog{})
+	if d := r.URL.Query().Get("days"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 && v <= 365 {
+			q = q.Where("created_at >= ?", time.Now().AddDate(0, 0, -v))
+		}
+	}
+
 	var rows []row
-	h.db.Model(&database.UsageLog{}).
-		Select("model, count(*) as total_reqs, COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens").
+	q.Select("model, count(*) as total_reqs, COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens").
 		Group("model").
 		Order("total_reqs DESC").
 		Scan(&rows)
@@ -374,7 +392,7 @@ func (h *StatsHandler) ByModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rows)
 }
 
-// GET /api/admin/stats/by-model-day — per-model daily breakdown for the last 30 days
+// GET /api/admin/stats/by-model-day — per-model daily breakdown
 func (h *StatsHandler) ByModelDay(w http.ResponseWriter, r *http.Request) {
 	type row struct {
 		Day          string `json:"day"`
@@ -384,7 +402,13 @@ func (h *StatsHandler) ByModelDay(w http.ResponseWriter, r *http.Request) {
 		OutputTokens int64  `json:"output_tokens"`
 	}
 
-	since := time.Now().AddDate(0, 0, -30)
+	days := 30
+	if d := r.URL.Query().Get("days"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 && v <= 365 {
+			days = v
+		}
+	}
+	since := time.Now().AddDate(0, 0, -days)
 	var rows []row
 	h.db.Model(&database.UsageLog{}).
 		Select("DATE(created_at) as day, model, count(*) as requests, COALESCE(SUM(input_tokens),0) as input_tokens, COALESCE(SUM(output_tokens),0) as output_tokens").

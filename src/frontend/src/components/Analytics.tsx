@@ -33,9 +33,11 @@ function estimateCostPerDay(day: DayStat): number {
   return (day.input_tokens / 1e6) * inp + (day.output_tokens / 1e6) * out
 }
 
-function shortModel(m: string) {
-  // e.g. "claude-sonnet-4-6" → "sonnet-4-6"
-  return m.replace(/^claude-/, '')
+function shortModel(name: string): string {
+  return name
+    .replace('claude-', '')
+    .replace(/-\d{8}$/, '')  // remove date suffix
+    .replace('-latest', '')
 }
 
 type Tab = 'tokens' | 'requests' | 'cost'
@@ -68,12 +70,12 @@ export default function Analytics() {
     return () => { es.close(); clearTimeout(timeout) }
   }, [qc])
 
-  const { data: overview }     = useQuery({ queryKey: ['stats', 'overview'],      queryFn: statsApi.overview })
-  const { data: byDay }        = useQuery({ queryKey: ['stats', 'by-day'],        queryFn: statsApi.byDay })
-  const { data: byUser }       = useQuery({ queryKey: ['stats', 'by-user'],       queryFn: statsApi.byUser })
-  const { data: byModel }      = useQuery({ queryKey: ['stats', 'by-model'],      queryFn: statsApi.byModel })
-  const { data: latency }      = useQuery({ queryKey: ['stats', 'latency'],       queryFn: statsApi.latency })
-  const { data: byModelDay }   = useQuery({ queryKey: ['stats', 'by-model-day'],  queryFn: statsApi.byModelDay })
+  const { data: overview }     = useQuery({ queryKey: ['stats', 'overview'],            queryFn: statsApi.overview })
+  const { data: byDay }        = useQuery({ queryKey: ['stats', 'by-day', days],        queryFn: () => statsApi.byDay(days) })
+  const { data: byUser }       = useQuery({ queryKey: ['stats', 'by-user'],              queryFn: statsApi.byUser })
+  const { data: byModel }      = useQuery({ queryKey: ['stats', 'by-model', days],       queryFn: () => statsApi.byModel(days) })
+  const { data: latency }      = useQuery({ queryKey: ['stats', 'latency', days],        queryFn: () => statsApi.latency(days) })
+  const { data: byModelDay }   = useQuery({ queryKey: ['stats', 'by-model-day', days],   queryFn: () => statsApi.byModelDay(days) })
   const { data: heatmapData }  = useQuery({ queryKey: ['stats', 'heatmap', days],  queryFn: () => statsApi.heatmap(days) })
   const { data: sessionData }  = useQuery({ queryKey: ['stats', 'sessions', days], queryFn: () => statsApi.sessions(days * 24) })
 
@@ -169,7 +171,10 @@ export default function Analytics() {
       {/* Evolution charts — tabbed */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="flex items-center justify-between px-6 pt-5 pb-0">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Evolution — last {days} days</h2>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Evolution — last {days} days</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Daily token usage, request count, and estimated cost over time.</p>
+          </div>
           <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600 text-xs">
             {(['tokens', 'requests', 'cost'] as Tab[]).map(t => (
               <button
@@ -203,7 +208,7 @@ export default function Analytics() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={d => d.slice(5)} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : String(v)} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : String(v)} label={{ value: 'Tokens', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
                   <Tooltip formatter={(v: number) => [v.toLocaleString(), '']} labelFormatter={l => `Date: ${l}`} />
                   <Area type="monotone" dataKey="input_tokens"  stroke="#4f6ef7" fill="url(#inputGrad)"  name="Input" />
                   <Area type="monotone" dataKey="output_tokens" stroke="#a855f7" fill="url(#outputGrad)" name="Output" />
@@ -213,16 +218,18 @@ export default function Analytics() {
                 <LineChart data={byDay}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={d => d.slice(5)} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} label={{ value: 'Requests', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
                   <Tooltip formatter={(v: number) => [v.toLocaleString(), 'Requests']} labelFormatter={l => `Date: ${l}`} />
+                  <Legend />
                   <Line type="monotone" dataKey="total_requests" stroke="#10b981" strokeWidth={2} dot={false} name="Requests" />
                 </LineChart>
               ) : (
                 <LineChart data={byDay.map(d => ({ ...d, cost: estimateCostPerDay(d) }))}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} tickFormatter={d => d.slice(5)} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `$${v.toFixed(2)}`} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `$${v.toFixed(2)}`} label={{ value: 'Cost ($)', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
                   <Tooltip formatter={(v: number) => [`$${v.toFixed(3)}`, 'Est. cost']} labelFormatter={l => `Date: ${l}`} />
+                  <Legend />
                   <Line type="monotone" dataKey="cost" stroke="#f59e0b" strokeWidth={2} dot={false} name="Est. cost ($)" />
                 </LineChart>
               )}
@@ -236,14 +243,15 @@ export default function Analytics() {
       {/* Model trends over time */}
       {modelDayBarData.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Model Trends — last {days} days</h2>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Model Trends — last {days} days</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">Stacked daily request volume broken down by model.</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={modelDayBarData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="day" tick={{ fontSize: 10 }} tickFormatter={d => String(d).slice(5)} />
-              <YAxis tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} label={{ value: 'Requests', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
               <Tooltip labelFormatter={l => `Date: ${l}`} />
-              <Legend formatter={shortModel} />
+              <Legend formatter={(value) => shortModel(value)} />
               {allModelKeys.map((m, i) => (
                 <Bar key={m} dataKey={m} name={m} stackId="a" fill={COLORS[i % COLORS.length]} />
               ))}
@@ -255,15 +263,17 @@ export default function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* By user */}
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Top Users by Tokens</h2>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Top Users by Tokens</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">Input and output token consumption per user.</p>
           {byUser && byUser.length > 0 ? (
             <>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={byUser.slice(0, 10)} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid, #f0f0f0)" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} label={{ value: 'Tokens', position: 'insideBottom', offset: -2, style: { fontSize: 11 } }} />
                   <YAxis type="category" dataKey="user_name" tick={{ fontSize: 11 }} width={80} />
                   <Tooltip formatter={(v: number) => [v.toLocaleString(), '']} />
+                  <Legend />
                   <Bar dataKey="input_tokens"  name="Input"  fill="#4f6ef7" radius={[0, 3, 3, 0]} />
                   <Bar dataKey="output_tokens" name="Output" fill="#a855f7" radius={[0, 3, 3, 0]} />
                 </BarChart>
@@ -284,15 +294,17 @@ export default function Analytics() {
 
         {/* By model */}
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Requests by Model</h2>
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Requests by Model</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">Total request distribution across models.</p>
           {byModel && byModel.length > 0 ? (
             <>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={byModel}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid, #f0f0f0)" />
                   <XAxis dataKey="model" tick={{ fontSize: 10 }} tickFormatter={m => shortModel(m).split('-').slice(-2).join('-')} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} label={{ value: 'Requests', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
                   <Tooltip />
+                  <Legend formatter={(value) => shortModel(value)} />
                   <Bar dataKey="total_requests" name="Requests" radius={[3, 3, 0, 0]}>
                     {byModel.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Bar>
@@ -321,15 +333,16 @@ export default function Analytics() {
 
       {/* Latency chart */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Request Latency (P50 / P95 / P99)</h2>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Request Latency (P50 / P95 / P99)</h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">Latency percentiles per model over the last {days} days.</p>
         {latency && latency.length > 0 ? (
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={latency}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid, #f0f0f0)" />
               <XAxis dataKey="model" tick={{ fontSize: 10 }} tickFormatter={m => shortModel(m).split("-").slice(-2).join("-")} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(1)}s` : `${v}ms`} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(1)}s` : `${v}ms`} label={{ value: 'Latency (ms)', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }} />
               <Tooltip formatter={(v: number) => [`${v}ms`, ""]} />
-              <Legend />
+              <Legend formatter={(value) => shortModel(value)} />
               <Bar dataKey="p50_ms" name="P50" fill="#10b981" radius={[3, 3, 0, 0]} />
               <Bar dataKey="p95_ms" name="P95" fill="#f59e0b" radius={[3, 3, 0, 0]} />
               <Bar dataKey="p99_ms" name="P99" fill="#ef4444" radius={[3, 3, 0, 0]} />
@@ -342,7 +355,8 @@ export default function Analytics() {
 
       {/* Activity heatmap */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Activity Heatmap — last {days} days</h2>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Activity Heatmap — last {days} days</h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-4">Request volume by day of week and hour of day.</p>
         {heatmapData && heatmapData.length > 0 ? (
           <div className="overflow-x-auto">
             <div className="min-w-[560px]">
@@ -378,11 +392,13 @@ export default function Analytics() {
                   })}
                 </div>
               ))}
-              <div className="flex items-center gap-2 mt-3 text-xs text-gray-400 dark:text-gray-500">
+              <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
                 <span>Less</span>
-                {[0.1, 0.3, 0.5, 0.75, 1.0].map(op => (
-                  <div key={op} className="w-4 h-4 rounded-sm" style={{ backgroundColor: `rgba(79, 110, 247, ${op})` }} />
-                ))}
+                <div className="flex gap-0.5">
+                  {[0.1, 0.3, 0.5, 0.7, 1.0].map(o => (
+                    <div key={o} className="w-4 h-4 rounded" style={{ backgroundColor: `rgba(79, 110, 247, ${o})` }} />
+                  ))}
+                </div>
                 <span>More</span>
               </div>
             </div>

@@ -149,6 +149,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		teamsH := handlers.NewTeamsHandler(s.db)
 		r.Get("/api/admin/teams", teamsH.List)
 		r.Post("/api/admin/teams", teamsH.Create)
+		r.Get("/api/admin/teams/{id}", teamsH.Get)
 		r.Put("/api/admin/teams/{id}", teamsH.Update)
 		r.Delete("/api/admin/teams/{id}", teamsH.Delete)
 
@@ -228,7 +229,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 		r.Delete("/api/admin/sessions/{id}", sessionsH.Revoke)
 
 		// Runtime settings
-		settingsH := handlers.NewSettingsHandler(s.settings)
+		settingsH := handlers.NewSettingsHandler(s.db, s.settings)
 		r.Get("/api/admin/settings", settingsH.List)
 		r.Put("/api/admin/settings", settingsH.Update)
 

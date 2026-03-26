@@ -23,6 +23,20 @@ func (h *TeamsHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, teams)
 }
 
+func (h *TeamsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid id"))
+		return
+	}
+	var team database.Team
+	if err := h.db.First(&team, id).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("team not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, team)
+}
+
 func (h *TeamsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name              string  `json:"name"`
@@ -80,6 +94,7 @@ func (h *TeamsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errResp("team not found"))
 		return
 	}
+	logAudit(h.db, r, "update_team", "team:"+team.Name, "")
 	writeJSON(w, http.StatusOK, team)
 }
 
@@ -94,6 +109,7 @@ func (h *TeamsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errResp("team not found"))
 		return
 	}
+	h.db.Model(&database.User{}).Where("team_id = ?", id).Update("team_id", nil)
 	if err := h.db.Delete(&database.Team{}, id).Error; err != nil {
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to delete team"))
 		return

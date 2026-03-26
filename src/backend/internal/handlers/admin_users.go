@@ -35,6 +35,7 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name              string     `json:"name"`
 		PoolIDs           []uint     `json:"pool_ids"`
+		TeamID            *uint      `json:"team_id"`
 		TokenExpiresAt    *time.Time `json:"token_expires_at"`
 		DailyTokenQuota   int        `json:"daily_token_quota"`
 		MonthlyTokenQuota int        `json:"monthly_token_quota"`
@@ -58,6 +59,7 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Name:              req.Name,
 		APIToken:          token,
 		Active:            true,
+		TeamID:            req.TeamID,
 		TokenExpiresAt:    req.TokenExpiresAt,
 		DailyTokenQuota:   req.DailyTokenQuota,
 		MonthlyTokenQuota: req.MonthlyTokenQuota,
@@ -105,6 +107,7 @@ func (h *UsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name              string   `json:"name"`
 		PoolIDs           *[]uint  `json:"pool_ids"`
+		TeamID            *uint    `json:"team_id"`
 		Active            *bool    `json:"active"`
 		TokenExpiresAt    *string  `json:"token_expires_at"` // ISO string or null
 		DailyTokenQuota   *int     `json:"daily_token_quota"`
@@ -159,6 +162,13 @@ func (h *UsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ExtraHeaders != nil {
 		updates["extra_headers"] = *req.ExtraHeaders
+	}
+	if req.TeamID != nil {
+		if *req.TeamID == 0 {
+			updates["team_id"] = nil
+		} else {
+			updates["team_id"] = *req.TeamID
+		}
 	}
 
 	if len(updates) > 0 {

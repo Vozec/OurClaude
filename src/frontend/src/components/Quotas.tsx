@@ -102,6 +102,14 @@ function AccountQuotaCard({ q }: { q: AccountQuotaWithInfo }) {
 
       <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
         Updated {new Date(q.updated_at).toLocaleTimeString()}
+        {(() => {
+          const ageMs = Date.now() - new Date(q.updated_at).getTime()
+          const ageHours = Math.floor(ageMs / 3600000)
+          if (ageHours >= 1) {
+            return <span className="ml-2 text-orange-500 font-medium">{'\u26A0'} Data from {ageHours}h ago</span>
+          }
+          return null
+        })()}
       </p>
     </div>
   )
@@ -218,6 +226,13 @@ export default function Quotas() {
           </div>
           <p className="text-2xl font-bold text-gray-400">{errored}</p>
         </div>
+      </div>
+
+      {/* Color legend */}
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500" /> 90%+</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-amber-500" /> 70-89%</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500" /> &lt;70%</span>
       </div>
 
       {/* Pool averages */}

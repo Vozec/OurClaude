@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { usersApi, poolsApi, User, Pool, UserStats, Account } from '../lib/api'
+import { usersApi, poolsApi, teamsApi, User, Pool, Team, UserStats, Account } from '../lib/api'
+import { Link } from 'react-router-dom'
 import { Plus, RotateCcw, Trash2, Edit2, Copy, Check, Clock, Gauge, Terminal, Link2, X } from 'lucide-react'
 import { useToast } from './ToastProvider'
 import { copyToClipboard } from '../lib/clipboard'
@@ -67,9 +68,10 @@ function PoolCheckboxList({ pools, selected, onChange }: {
   )
 }
 
-function CreateUserModal({ pools, onClose }: { pools: Pool[]; onClose: () => void }) {
+function CreateUserModal({ pools, teams, onClose }: { pools: Pool[]; teams: Team[]; onClose: () => void }) {
   const [name, setName]       = useState('')
   const [poolIds, setPoolIds] = useState<number[]>([])
+  const [teamId, setTeamId]   = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [dailyQuota, setDailyQuota]     = useState('')
   const [monthlyQuota, setMonthlyQuota] = useState('')
@@ -91,6 +93,7 @@ function CreateUserModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
       ...(ipWhitelist   ? { ip_whitelist: ipWhitelist }     : {}),
       ...(monthlyBudget ? { monthly_budget_usd: Number(monthlyBudget) } : {}),
       ...(extraHeaders  ? { extra_headers: extraHeaders }   : {}),
+      ...(teamId ? { team_id: Number(teamId) } : {}),
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['users'] })
@@ -154,6 +157,7 @@ function CreateUserModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
               value={allowedModels} onChange={e => setAllowedModels(e.target.value)} placeholder="e.g. claude-haiku-4-5,claude-sonnet-4-6"
             />
+            <p className="text-xs text-gray-400 mt-1">Comma-separated model names. Leave empty to allow all.</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IP whitelist (empty = all)</label>
@@ -161,6 +165,7 @@ function CreateUserModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
               value={ipWhitelist} onChange={e => setIpWhitelist(e.target.value)} placeholder="e.g. 192.168.1.0/24,10.0.0.1"
             />
+            <p className="text-xs text-gray-400 mt-1">Comma-separated CIDRs. Example: 192.168.1.0/24,10.0.0.1</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -179,6 +184,18 @@ function CreateUserModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
               rows={2}
               value={extraHeaders} onChange={e => setExtraHeaders(e.target.value)} placeholder='{"x-custom": "value"}'
             />
+            <p className="text-xs text-gray-400 mt-1">{"JSON object. Example: {\"x-custom\": \"value\"}"}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Team (optional)</label>
+            <select
+              value={teamId}
+              onChange={e => setTeamId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">— No team —</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
@@ -199,10 +216,11 @@ function CreateUserModal({ pools, onClose }: { pools: Pool[]; onClose: () => voi
   )
 }
 
-function EditUserModal({ user, pools, onClose }: { user: User; pools: Pool[]; onClose: () => void }) {
+function EditUserModal({ user, pools, teams, onClose }: { user: User; pools: Pool[]; teams: Team[]; onClose: () => void }) {
   const initialPoolIds = (user.pools ?? []).map(p => p.id)
 
   const [poolIds, setPoolIds] = useState<number[]>(initialPoolIds)
+  const [teamId, setTeamId]   = useState(String(user.team_id ?? ''))
   const [active, setActive] = useState(user.active)
   const [dailyQuota, setDailyQuota]     = useState(String(user.daily_token_quota ?? 0))
   const [monthlyQuota, setMonthlyQuota] = useState(String(user.monthly_token_quota ?? 0))
@@ -222,6 +240,7 @@ function EditUserModal({ user, pools, onClose }: { user: User; pools: Pool[]; on
       ip_whitelist: ipWhitelist2,
       monthly_budget_usd: Number(monthlyBudget2),
       extra_headers: extraHeaders2,
+      team_id: teamId ? Number(teamId) : null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['users'] })
@@ -286,6 +305,17 @@ function EditUserModal({ user, pools, onClose }: { user: User; pools: Pool[]; on
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Extra headers (JSON)</label>
             <textarea className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-mono text-xs dark:bg-gray-700 dark:text-white dark:placeholder-gray-400" rows={2} value={extraHeaders2} onChange={e => setExtraHeaders2(e.target.value)} placeholder='{"x-custom": "value"}' />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Team (optional)</label>
+            <select
+              value={teamId}
+              onChange={e => setTeamId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">— No team —</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
           </div>
         </div>
         <div className="flex gap-3 mt-6">
@@ -465,6 +495,7 @@ export default function Users() {
 
   const { data: users = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
   const { data: pools = [] }            = useQuery({ queryKey: ['pools'], queryFn: poolsApi.list })
+  const { data: teams = [] }            = useQuery({ queryKey: ['teams'], queryFn: teamsApi.list })
 
   const deleteMutation = useMutation({
     mutationFn: usersApi.delete,
@@ -521,7 +552,7 @@ export default function Users() {
               {users.map(user => (
                 <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                   <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">
-                    <button onClick={() => setSelectedUser(user)} className="hover:text-brand-500 transition-colors text-left">{user.name}</button>
+                    <Link to={'/users/' + user.id} className="hover:text-brand-500 hover:underline transition-colors">{user.name}</Link>
                   </td>
                   <td className="px-6 py-4"><CopyToken token={user.api_token} /></td>
                   <td className="px-6 py-4"><PoolBadges user={user} /></td>
@@ -584,8 +615,8 @@ export default function Users() {
         )}
       </div>
 
-      {showCreate && <CreateUserModal pools={pools} onClose={() => setShowCreate(false)} />}
-      {editUser   && <EditUserModal user={editUser} pools={pools} onClose={() => setEditUser(null)} />}
+      {showCreate && <CreateUserModal pools={pools} teams={teams} onClose={() => setShowCreate(false)} />}
+      {editUser   && <EditUserModal user={editUser} pools={pools} teams={teams} onClose={() => setEditUser(null)} />}
       {selectedUser && <UserDetailPanel user={selectedUser} onClose={() => setSelectedUser(null)} />}
       {confirmAction && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

@@ -79,6 +79,109 @@ function RTKSection() {
   )
 }
 
+const detectedPlatform = (() => {
+  const ua = navigator.userAgent.toLowerCase()
+  if (ua.includes('mac')) return 'darwin-arm64'
+  if (ua.includes('win')) return 'windows-amd64'
+  return 'linux-amd64'
+})()
+
+function InstallTabs({ origin, token, data, loginCmd }: { origin: string; token: string; data: SetupLinkData; loginCmd: string }) {
+  const [tab, setTab] = useState<'auto' | 'manual'>('auto')
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 mb-4">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
+        <div className="flex items-center gap-1.5">
+          <Download className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <span className="font-semibold text-gray-900 dark:text-white text-sm">Install the CLI</span>
+        </div>
+      </div>
+
+      {/* Pill toggle */}
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-900 rounded-lg p-1 mb-4">
+        <button
+          onClick={() => setTab('auto')}
+          className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${tab === 'auto' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+        >
+          Automatic
+        </button>
+        <button
+          onClick={() => setTab('manual')}
+          className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${tab === 'manual' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+        >
+          Manual
+        </button>
+      </div>
+
+      {tab === 'auto' ? (
+        <div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">One command to download, install, and login:</p>
+          <div className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-3 flex items-center gap-2">
+            <code className="flex-1 text-xs text-green-400 font-mono break-all">
+              curl -sSL {origin}/api/install/{token} | sudo bash
+            </code>
+            <CopyButton text={`curl -sSL ${origin}/api/install/${token} | sudo bash`} />
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Step A: Download */}
+          <div>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Download the binary:</p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {PLATFORMS.map(p => {
+                const dlPath = data.download_links[p.id] ?? `/api/downloads/${p.id}`
+                const isDetected = p.id === detectedPlatform
+                return (
+                  <a
+                    key={p.id}
+                    href={`${origin}${dlPath}`}
+                    className={`px-3 py-1.5 text-xs rounded-lg transition-colors font-medium ${
+                      isDetected
+                        ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300 border border-brand-500 ring-1 ring-brand-500'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 dark:hover:text-brand-300'
+                    }`}
+                  >
+                    {p.label}
+                    {isDetected && <span className="ml-1 text-brand-500 text-xs font-normal">&larr; Your OS</span>}
+                  </a>
+                )
+              })}
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Or download with wget:</p>
+            <div className="space-y-2">
+              {PLATFORMS.map(p => {
+                const dlPath = data.download_links[p.id] ?? `/api/downloads/${p.id}`
+                const wgetCmd = `wget -O ourclaude ${origin}${dlPath} && chmod +x ourclaude`
+                return (
+                  <div key={p.id} className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-2 flex items-center gap-2">
+                    <span className="text-xs text-gray-400 font-medium shrink-0 w-28">{p.label}:</span>
+                    <code className="flex-1 text-xs text-green-400 font-mono break-all">{wgetCmd}</code>
+                    <CopyButton text={wgetCmd} />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Step B: Login */}
+          <div>
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Then login to the proxy:</p>
+            <div className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-3 flex items-center gap-2">
+              <code className="flex-1 text-xs text-green-400 font-mono break-all">{loginCmd}</code>
+              <CopyButton text={loginCmd} />
+            </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+              Run this after <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">chmod +x ./ourclaude</code>
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function SetupLink() {
   const { token } = useParams<{ token: string }>()
   const [data, setData] = useState<SetupLinkData | null>(null)
@@ -148,79 +251,8 @@ export default function SetupLink() {
           </div>
         </div>
 
-        {/* Step 1: Download */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 mb-4">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center shrink-0">1</span>
-            <div className="flex items-center gap-1.5">
-              <Download className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              <span className="font-semibold text-gray-900 dark:text-white text-sm">Download the CLI</span>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {PLATFORMS.map(p => {
-              const dlPath = data.download_links[p.id] ?? `/api/downloads/${p.id}`
-              return (
-                <a
-                  key={p.id}
-                  href={`${origin}${dlPath}`}
-                  className="px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 dark:hover:text-brand-300 transition-colors font-medium"
-                >
-                  {p.label}
-                </a>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Step 2: Login */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 mb-4">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center shrink-0">2</span>
-            <div className="flex items-center gap-1.5">
-              <Terminal className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              <span className="font-semibold text-gray-900 dark:text-white text-sm">Login to the proxy</span>
-            </div>
-          </div>
-          <div className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-3 flex items-center gap-2">
-            <code className="flex-1 text-xs text-green-400 font-mono break-all">{loginCmd}</code>
-            <CopyButton text={loginCmd} />
-          </div>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-            Run this after <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">chmod +x ./ourclaude</code>
-          </p>
-        </div>
-
-        {/* Step 1b: Alternative Install */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 mb-4">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="flex items-center gap-1.5">
-              <Terminal className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              <span className="font-semibold text-gray-900 dark:text-white text-sm">Alternative: install via script</span>
-            </div>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Automatic install (downloads binary + runs login):</p>
-          <div className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-3 flex items-center gap-2 mb-3">
-            <code className="flex-1 text-xs text-green-400 font-mono break-all">
-              curl -sSL {origin}/api/install/{token} | sudo bash
-            </code>
-            <CopyButton text={`curl -sSL ${origin}/api/install/${token} | sudo bash`} />
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Or download manually with wget:</p>
-          <div className="space-y-2">
-            {PLATFORMS.map(p => {
-              const dlPath = data.download_links[p.id] ?? `/api/downloads/${p.id}`
-              const wgetCmd = `wget -O ourclaude ${origin}${dlPath} && chmod +x ourclaude`
-              return (
-                <div key={p.id} className="bg-gray-900 dark:bg-gray-950 rounded-lg px-4 py-2 flex items-center gap-2">
-                  <span className="text-xs text-gray-400 font-medium shrink-0 w-28">{p.label}:</span>
-                  <code className="flex-1 text-xs text-green-400 font-mono break-all">{wgetCmd}</code>
-                  <CopyButton text={wgetCmd} />
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        {/* Install tabs */}
+        <InstallTabs origin={origin} token={token!} data={data} loginCmd={loginCmd} />
 
         {/* RTK recommendation */}
         <RTKSection />

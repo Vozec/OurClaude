@@ -5,14 +5,17 @@ import (
 	"net/http"
 
 	"claude-proxy/internal/settings"
+
+	"gorm.io/gorm"
 )
 
 type SettingsHandler struct {
+	db  *gorm.DB
 	svc *settings.Service
 }
 
-func NewSettingsHandler(svc *settings.Service) *SettingsHandler {
-	return &SettingsHandler{svc: svc}
+func NewSettingsHandler(db *gorm.DB, svc *settings.Service) *SettingsHandler {
+	return &SettingsHandler{db: db, svc: svc}
 }
 
 // GET /api/admin/settings — returns all editable runtime settings
@@ -47,5 +50,6 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	logAudit(h.db, r, "update_settings", "settings", "")
 	writeJSON(w, http.StatusOK, h.svc.All())
 }
