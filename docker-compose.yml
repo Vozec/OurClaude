@@ -7,8 +7,8 @@ services:
          CLI_PLATFORMS: linux-amd64
     ports:
       - "${WEB_PORT:-3000}:3000"
-    volumes:
-      - ./data:/data
+    #volumes:
+      #- ./data:/data
     environment:
       - WEB_PORT=3000
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
