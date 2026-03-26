@@ -587,6 +587,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, resp *http.Response, use
 	latencyMs := int(time.Since(start).Milliseconds())
 	captured := buf.Bytes()
 
+	// Debug: log captured body size and streaming status
+	log.Printf("proxy: response captured %d bytes, streaming=%v, status=%d, user=%d, account=%d",
+		len(captured), isStreaming, resp.StatusCode, userID, accountID)
+
 	// Cache non-streaming successful responses
 	if !isStreaming && resp.StatusCode == http.StatusOK && cacheKey != "" && h.settings.GetInt("response_cache_ttl") > 0 {
 		headers := make(map[string][]string)
@@ -708,6 +712,9 @@ func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, end
 			}
 		}
 	}
+
+	log.Printf("proxy: parsed usage — model=%q input=%d output=%d cache_r=%d cache_w=%d streaming=%v status=%d",
+		model, inputTokens, outputTokens, cacheRead, cacheWrite, isStreaming, statusCode)
 
 	// Prometheus metrics
 	statusStr := strconv.Itoa(statusCode)

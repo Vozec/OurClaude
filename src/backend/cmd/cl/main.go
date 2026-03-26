@@ -441,10 +441,16 @@ func cmdLogout() {
 func cmdUninstall() {
 	fmt.Println("Uninstalling ourclaude...")
 
-	// Remove config
+	// Remove config (own home + sudo user's home if running as root)
 	cfgPath := configPath()
 	if err := os.Remove(cfgPath); err == nil {
-		fmt.Printf("  Removed ~/%s\n", configFile)
+		fmt.Printf("  Removed %s\n", cfgPath)
+	}
+	if home := sudoUserHome(); home != "" {
+		altCfg := filepath.Join(home, configFile)
+		if err := os.Remove(altCfg); err == nil {
+			fmt.Printf("  Removed %s\n", altCfg)
+		}
 	}
 
 	// Remove binary from known locations
@@ -458,15 +464,20 @@ func cmdUninstall() {
 	}
 
 	removed := false
+	needSudo := false
 	for _, path := range locations {
 		if _, err := os.Stat(path); err == nil {
 			if err := os.Remove(path); err != nil {
-				fmt.Fprintf(os.Stderr, "  Failed to remove %s: %v (try with sudo)\n", path, err)
+				needSudo = true
 			} else {
 				fmt.Printf("  Removed %s\n", path)
 				removed = true
 			}
 		}
+	}
+	if needSudo {
+		fmt.Fprintln(os.Stderr, "\n  Insufficient permissions. Run: sudo ourclaude uninstall")
+		os.Exit(1)
 	}
 
 	if !removed {
@@ -594,6 +605,21 @@ func formatTokens(n int64) string {
 
 // syncOwnedAccount silently fetches the current credentials from the proxy
 // isProxyReachable checks if the proxy server responds within 3 seconds.
+func sudoUserHome() string {
+	u := os.Getenv("SUDO_USER")
+	if u == "" {
+		return ""
+	}
+	// Common Linux/macOS pattern
+	if _, err := os.Stat("/home/" + u); err == nil {
+		return "/home/" + u
+	}
+	if _, err := os.Stat("/Users/" + u); err == nil {
+		return "/Users/" + u
+	}
+	return ""
+}
+
 func isProxyReachable(cfg *Config) bool {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(cfg.ServerURL + "/healthz")
@@ -772,7 +798,34 @@ func buildEnv(cfg *Config) []string {
 }
 
 func cmdUpdate() {
+	// Check write permissions before downloading
+	selfPath, err := os.Executable()
+	if err == nil {
+		selfPath, _ = filepath.EvalSymlinks(selfPath)
+		if f, err := os.OpenFile(selfPath+".test", os.O_CREATE|os.O_WRONLY, 0755); err != nil {
+			fmt.Fprintln(os.Stderr, "Insufficient permissions. Run: sudo ourclaude update")
+			os.Exit(1)
+		} else {
+			f.Close()
+			os.Remove(selfPath + ".test")
+		}
+	}
+
+	// Load config — try real user's home if running as sudo
 	cfg, err := loadConfig()
+	if err != nil && os.Getenv("SUDO_USER") != "" {
+		// Running as sudo: try loading from the real user's home
+		if sudoHome := sudoUserHome(); sudoHome != "" {
+			altPath := filepath.Join(sudoHome, configFile)
+			if data, e := os.ReadFile(altPath); e == nil {
+				var c Config
+				if json.Unmarshal(data, &c) == nil {
+					cfg = &c
+					err = nil
+				}
+			}
+		}
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Fprintln(os.Stderr, "ourclaude: not logged in. Run: ourclaude login <server_url>")

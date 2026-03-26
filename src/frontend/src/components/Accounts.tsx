@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, poolsApi, usersApi, quotasApi, Account, Pool, User, AccountQuotaData } from '../lib/api'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Trash2, RefreshCw, RotateCcw, CheckCircle, AlertCircle, Clock, X, KeyRound, Pencil, Link2Off, BarChart2, Power, Key } from 'lucide-react'
 import { useToast } from './ToastProvider'
 import { copyToClipboard } from '../lib/clipboard'
@@ -382,6 +382,7 @@ function ApiKeyStatsCell({ accountId }: { accountId: number }) {
 }
 
 export default function Accounts() {
+  const navigate = useNavigate()
   const [showAdd, setShowAdd] = useState(false)
   const [editAccount, setEditAccount] = useState<Account | null>(null)
   const [credAccount, setCredAccount] = useState<Account | null>(null)
@@ -494,7 +495,7 @@ export default function Accounts() {
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
               {(tab === 'oauth' ? oauthAccounts : apiKeyAccounts).map(account => (
-                <tr key={account.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                <tr key={account.id} onClick={() => navigate('/accounts/' + account.id)} className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <Link to={'/accounts/' + account.id} className="text-sm font-medium text-gray-900 dark:text-white hover:text-brand-500 hover:underline">{account.name}</Link>
@@ -535,7 +536,7 @@ export default function Accounts() {
                   <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                     {account.last_used_at ? new Date(account.last_used_at).toLocaleString() : '—'}
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
                       <button
                         title="Test account"

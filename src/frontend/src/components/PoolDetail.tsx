@@ -75,6 +75,7 @@ function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel, dange
 }
 
 function AccountRow({ account, poolId }: { account: Account; poolId: number }) {
+  const navigate = useNavigate()
   const [showConfirm, setShowConfirm] = useState(false)
   const qc = useQueryClient()
   const { data: stats } = useQuery({
@@ -92,7 +93,7 @@ function AccountRow({ account, poolId }: { account: Account; poolId: number }) {
 
   return (
     <>
-      <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+      <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onClick={() => navigate('/accounts/' + account.id)}>
         <td className="px-5 py-3">
           <p className="text-sm font-medium text-gray-900 dark:text-white">{account.name}</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
@@ -109,7 +110,7 @@ function AccountRow({ account, poolId }: { account: Account; poolId: number }) {
         <td className="px-5 py-3 text-xs text-gray-400 dark:text-gray-500">
           {account.last_used_at ? new Date(account.last_used_at).toLocaleString() : '—'}
         </td>
-        <td className="px-5 py-3 text-right">
+        <td className="px-5 py-3 text-right" onClick={e => e.stopPropagation()}>
           <button
             title="Unlink from pool"
             onClick={() => setShowConfirm(true)}

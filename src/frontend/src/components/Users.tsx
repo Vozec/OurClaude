@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { usersApi, poolsApi, teamsApi, User, Pool, Team, UserStats, Account } from '../lib/api'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Plus, RotateCcw, Trash2, Edit2, Copy, Check, Clock, Gauge, Terminal, Link2, X } from 'lucide-react'
 import { useToast } from './ToastProvider'
 import { copyToClipboard } from '../lib/clipboard'
@@ -485,6 +485,7 @@ function UserDetailPanel({ user, onClose }: { user: User; onClose: () => void })
 }
 
 export default function Users() {
+  const navigate = useNavigate()
   const [showCreate, setShowCreate] = useState(false)
   const [editUser, setEditUser]     = useState<User | null>(null)
   const [setupLinkCopied, setSetupLinkCopied] = useState<number | null>(null)
@@ -550,7 +551,7 @@ export default function Users() {
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
               {users.map(user => (
-                <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                <tr key={user.id} onClick={() => navigate('/users/' + user.id)} className="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
                   <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">
                     <Link to={'/users/' + user.id} className="hover:text-brand-500 hover:underline transition-colors">{user.name}</Link>
                   </td>
@@ -575,7 +576,7 @@ export default function Users() {
                     </div>
                   </td>
                   <td className="px-6 py-4"><Badge active={user.active} /></td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2">
                       <button
                         title="Copy ourclaude login command"
@@ -587,7 +588,7 @@ export default function Users() {
                       <button title="Edit" onClick={() => setEditUser(user)} className="p-1.5 text-gray-400 hover:text-brand-500 rounded">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button title="Rotate token" onClick={() => rotateMutation.mutate(user.id)} className="p-1.5 text-gray-400 hover:text-yellow-500 rounded">
+                      <button title="Rotate token" onClick={(e) => { e.stopPropagation(); setConfirmAction({ title: 'Rotate token', message: `Generate a new API token for "${user.name}"? The current token will stop working immediately.`, onConfirm: () => rotateMutation.mutate(user.id) }) }} className="p-1.5 text-gray-400 hover:text-yellow-500 rounded">
                         <RotateCcw className="w-4 h-4" />
                       </button>
                       <button
