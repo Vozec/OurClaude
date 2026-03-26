@@ -230,7 +230,8 @@ func (h *PoolsHandler) Users(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var users []database.User
-	if err := h.db.Where("pool_id = ?", id).Find(&users).Error; err != nil {
+	if err := h.db.Joins("JOIN user_pools ON user_pools.user_id = users.id").
+		Where("user_pools.pool_id = ?", id).Find(&users).Error; err != nil {
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to fetch users"))
 		return
 	}

@@ -441,33 +441,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) authenticate(r *http.Request) (*database.User, error) {
 	var token string
 
-	// Try x-api-key header first (Claude Code sends auth this way)
+	// Try all auth header patterns (Claude Code may use any of these)
 	if key := r.Header.Get("x-api-key"); key != "" {
 		token = key
 	} else if key := r.Header.Get("X-Api-Key"); key != "" {
 		token = key
-	} else {
-		// Fall back to Authorization: Bearer
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			return nil, errUnauthorized
-		}
-		token = strings.TrimPrefix(authHeader, "Bearer ")
-		if token == authHeader {
-			token = strings.TrimPrefix(authHeader, "bearer ")
-		}
-		if token == authHeader {
-			return nil, errUnauthorized
+	} else if authHeader := r.Header.Get("Authorization"); authHeader != "" {
+		// Try "Bearer TOKEN" format
+		if t := strings.TrimPrefix(authHeader, "Bearer "); t != authHeader {
+			token = t
+		} else if t := strings.TrimPrefix(authHeader, "bearer "); t != authHeader {
+			token = t
 		}
 	}
 
-	// Also try ANTHROPIC_AUTH_TOKEN pattern (sent as Bearer by some clients)
+	// Also check anthropic-auth-token header (some clients send it this way)
 	if token == "" {
+		if key := r.Header.Get("Anthropic-Auth-Token"); key != "" {
+			token = key
+		}
+	}
+
+	if token == "" {
+		log.Printf("proxy auth: no token found in request headers (x-api-key=%q, Authorization=%q)",
+			r.Header.Get("x-api-key"), r.Header.Get("Authorization"))
 		return nil, errUnauthorized
 	}
 
 	var user database.User
 	if err := h.db.Where("api_token = ?", token).First(&user).Error; err != nil {
+		log.Printf("proxy auth: token not found in DB (prefix=%s...)", token[:min(len(token), 15)])
 		return nil, errUnauthorized
 	}
 
