@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"claude-proxy/internal/config"
 	"claude-proxy/internal/crypto"
@@ -26,6 +30,55 @@ type AccountsHandler struct {
 
 func NewAccountsHandler(db *gorm.DB, enc *crypto.Encryptor, oauthRefresher *oauth.Refresher, poolMgr *pool.Manager, cfg *config.Config) *AccountsHandler {
 	return &AccountsHandler{db: db, enc: enc, oauth: oauthRefresher, poolMgr: poolMgr, cfg: cfg}
+}
+
+func refreshTokenHash(plaintext string) string {
+	h := sha256.Sum256([]byte(plaintext))
+	return hex.EncodeToString(h[:])
+}
+
+// upsertOAuthAccount creates or updates an account based on refresh token hash (dedup).
+// Returns the account and true if it was updated (existing), false if created (new).
+func (h *AccountsHandler) upsertOAuthAccount(name string, accessToken, refreshToken string, expiresAt time.Time, ownerUserID *uint) (*database.ClaudeAccount, bool, error) {
+	encAccess, err := h.enc.Encrypt(accessToken)
+	if err != nil {
+		return nil, false, fmt.Errorf("encrypt access: %w", err)
+	}
+	encRefresh, err := h.enc.Encrypt(refreshToken)
+	if err != nil {
+		return nil, false, fmt.Errorf("encrypt refresh: %w", err)
+	}
+	hash := refreshTokenHash(refreshToken)
+
+	// Check for existing account with same refresh token
+	var existing database.ClaudeAccount
+	if err := h.db.Where("refresh_token_hash = ?", hash).First(&existing).Error; err == nil {
+		// Update existing
+		h.db.Model(&existing).Updates(map[string]interface{}{
+			"access_token":  encAccess,
+			"refresh_token": encRefresh,
+			"expires_at":    expiresAt,
+			"status":        "active",
+			"last_error":    "",
+		})
+		return &existing, true, nil
+	}
+
+	// Create new
+	account := database.ClaudeAccount{
+		Name:             name,
+		AccountType:      "oauth",
+		AccessToken:      encAccess,
+		RefreshToken:     encRefresh,
+		RefreshTokenHash: hash,
+		ExpiresAt:        expiresAt,
+		Status:           "active",
+		OwnerUserID:      ownerUserID,
+	}
+	if err := h.db.Create(&account).Error; err != nil {
+		return nil, false, fmt.Errorf("create: %w", err)
+	}
+	return &account, false, nil
 }
 
 func (h *AccountsHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -110,29 +163,25 @@ func (h *AccountsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		} else {
 			expiresAt = time.Now().Add(1 * time.Hour)
 		}
-		encAccess, err := h.enc.Encrypt(creds.ClaudeAiOauth.AccessToken)
+		acc, updated, err := h.upsertOAuthAccount(req.Name, creds.ClaudeAiOauth.AccessToken, creds.ClaudeAiOauth.RefreshToken, expiresAt, nil)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt access token"))
+			writeJSON(w, http.StatusInternalServerError, errResp("failed to create account: "+err.Error()))
 			return
 		}
-		encRefresh, err := h.enc.Encrypt(creds.ClaudeAiOauth.RefreshToken)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt refresh token"))
+		account = *acc
+		if updated {
+			h.db.Preload("Pools").First(&account, account.ID)
+			logAudit(h.db, r, "create_account", "account:"+req.Name, "deduplicated — updated existing")
+			writeJSON(w, http.StatusOK, account)
 			return
-		}
-		account = database.ClaudeAccount{
-			Name:         req.Name,
-			AccountType:  "oauth",
-			AccessToken:  encAccess,
-			RefreshToken: encRefresh,
-			ExpiresAt:    expiresAt,
-			Status:       "active",
 		}
 	}
 
-	if err := h.db.Create(&account).Error; err != nil {
-		writeJSON(w, http.StatusInternalServerError, errResp("failed to create account"))
-		return
+	if account.ID == 0 {
+		if err := h.db.Create(&account).Error; err != nil {
+			writeJSON(w, http.StatusInternalServerError, errResp("failed to create account"))
+			return
+		}
 	}
 
 	// Create join table entries
@@ -168,8 +217,9 @@ func (h *AccountsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name    string  `json:"name"`
-		PoolIDs *[]uint `json:"pool_ids"`
+		Name        string  `json:"name"`
+		PoolIDs     *[]uint `json:"pool_ids"`
+		OwnerUserID *uint   `json:"owner_user_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, errResp("invalid request body"))
@@ -179,6 +229,13 @@ func (h *AccountsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	updates := map[string]interface{}{}
 	if req.Name != "" {
 		updates["name"] = req.Name
+	}
+	if req.OwnerUserID != nil {
+		if *req.OwnerUserID == 0 {
+			updates["owner_user_id"] = nil // unassign
+		} else {
+			updates["owner_user_id"] = *req.OwnerUserID
+		}
 	}
 
 	if len(updates) > 0 {
@@ -538,30 +595,74 @@ func (h *AccountsHandler) ImportCredentials(w http.ResponseWriter, r *http.Reque
 		expiresAt = time.Now().Add(1 * time.Hour)
 	}
 
-	encAccess, err := h.enc.Encrypt(creds.ClaudeAiOauth.AccessToken)
+	account, updated, err := h.upsertOAuthAccount("Imported "+time.Now().Format("2006-01-02 15:04"), creds.ClaudeAiOauth.AccessToken, creds.ClaudeAiOauth.RefreshToken, expiresAt, nil)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt"))
-		return
-	}
-	encRefresh, err := h.enc.Encrypt(creds.ClaudeAiOauth.RefreshToken)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errResp("failed to encrypt"))
+		writeJSON(w, http.StatusInternalServerError, errResp("failed: "+err.Error()))
 		return
 	}
 
-	account := database.ClaudeAccount{
-		Name:         "Imported " + time.Now().Format("2006-01-02 15:04"),
-		AccountType:  "oauth",
-		AccessToken:  encAccess,
-		RefreshToken: encRefresh,
-		ExpiresAt:    expiresAt,
-		Status:       "active",
+	action := "import_credentials"
+	if updated {
+		action = "import_credentials_updated"
 	}
-	if err := h.db.Create(&account).Error; err != nil {
-		writeJSON(w, http.StatusInternalServerError, errResp("failed to create account"))
-		return
-	}
-
-	logAudit(h.db, r, "import_credentials", fmt.Sprintf("account:%d", account.ID), "")
+	logAudit(h.db, r, action, fmt.Sprintf("account:%d", account.ID), "")
 	writeJSON(w, http.StatusCreated, account)
+}
+
+// POST /api/import/{token} — public pre-auth import using setup token
+func (h *AccountsHandler) PublicImport(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+
+	var setup database.SetupToken
+	if err := h.db.Where("token = ? AND expires_at > ?", token, time.Now()).First(&setup).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("invalid or expired setup token"))
+		return
+	}
+
+	var user database.User
+	if err := h.db.First(&user, setup.UserID).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("user not found"))
+		return
+	}
+
+	var creds credentialsJSON
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		writeJSON(w, http.StatusBadRequest, errResp("invalid JSON — expected {claudeAiOauth: {accessToken, refreshToken, expiresAt}}"))
+		return
+	}
+	if creds.ClaudeAiOauth.AccessToken == "" || creds.ClaudeAiOauth.RefreshToken == "" {
+		writeJSON(w, http.StatusBadRequest, errResp("missing accessToken or refreshToken"))
+		return
+	}
+
+	var expiresAt time.Time
+	if creds.ClaudeAiOauth.ExpiresAt > 0 {
+		expiresAt = time.UnixMilli(creds.ClaudeAiOauth.ExpiresAt)
+	} else {
+		expiresAt = time.Now().Add(1 * time.Hour)
+	}
+
+	account, updated, err := h.upsertOAuthAccount(user.Name+" (imported)", creds.ClaudeAiOauth.AccessToken, creds.ClaudeAiOauth.RefreshToken, expiresAt, &user.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errResp("failed: "+err.Error()))
+		return
+	}
+
+	// Link to user's pools if new account
+	if !updated {
+		var poolIDs []uint
+		h.db.Table("user_pools").Where("user_id = ?", user.ID).Pluck("pool_id", &poolIDs)
+		for _, pid := range poolIDs {
+			h.db.Create(&database.AccountPool{AccountID: account.ID, PoolID: pid})
+		}
+	}
+
+	status := "created"
+	if updated {
+		status = "updated (duplicate detected)"
+	}
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"message":    "account " + status,
+		"account_id": account.ID,
+	})
 }

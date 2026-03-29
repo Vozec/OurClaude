@@ -104,7 +104,7 @@ export const accountsApi = {
   stats:       (id: number) => get<AccountStats>(`/admin/accounts/${id}/stats`),
   create:      (body: { name: string; pool_ids?: number[]; account_type?: string; credentials_json?: string; api_key?: string }) =>
                  post<Account>('/admin/accounts', body),
-  update:      (id: number, body: Partial<{ name: string; pool_ids: number[] }>) =>
+  update:      (id: number, body: Partial<{ name: string; pool_ids: number[]; owner_user_id: number | null }>) =>
                  put<Account>(`/admin/accounts/${id}`, body),
   delete:      (id: number) => del(`/admin/accounts/${id}`),
   refresh:     (id: number) => post<{ expires_at: string }>(`/admin/accounts/${id}/refresh`),

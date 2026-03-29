@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -267,16 +268,26 @@ func (h *UserSelfHandler) ImportAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Upsert: update if owned account exists, create otherwise
+	// Dedup: check by refresh token hash first, then by owner_user_id
+	rtHash := fmt.Sprintf("%x", sha256.Sum256([]byte(creds.ClaudeAiOauth.RefreshToken)))
+
 	var existing database.ClaudeAccount
-	if err := h.db.Where("owner_user_id = ?", user.ID).First(&existing).Error; err == nil {
-		// Update existing
+	found := false
+	if err := h.db.Where("refresh_token_hash = ?", rtHash).First(&existing).Error; err == nil {
+		found = true
+	} else if err := h.db.Where("owner_user_id = ?", user.ID).First(&existing).Error; err == nil {
+		found = true
+	}
+
+	if found {
 		h.db.Model(&existing).Updates(map[string]interface{}{
-			"access_token":  encAccess,
-			"refresh_token": encRefresh,
-			"expires_at":    expiresAt,
-			"status":        "active",
-			"last_error":    "",
+			"access_token":      encAccess,
+			"refresh_token":     encRefresh,
+			"refresh_token_hash": rtHash,
+			"expires_at":        expiresAt,
+			"status":            "active",
+			"last_error":        "",
+			"owner_user_id":     user.ID,
 		})
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"message":    "account updated",
@@ -286,12 +297,13 @@ func (h *UserSelfHandler) ImportAccount(w http.ResponseWriter, r *http.Request) 
 	}
 
 	account := database.ClaudeAccount{
-		Name:         user.Name + " (personal)",
-		AccessToken:  encAccess,
-		RefreshToken: encRefresh,
-		ExpiresAt:    expiresAt,
-		Status:       "active",
-		OwnerUserID:  &user.ID,
+		Name:             user.Name + " (personal)",
+		AccessToken:      encAccess,
+		RefreshToken:     encRefresh,
+		RefreshTokenHash: rtHash,
+		ExpiresAt:        expiresAt,
+		Status:           "active",
+		OwnerUserID:      &user.ID,
 	}
 	if err := h.db.Create(&account).Error; err != nil {
 		writeJSON(w, http.StatusInternalServerError, errResp("failed to create account"))
@@ -307,6 +319,27 @@ func (h *UserSelfHandler) ImportAccount(w http.ResponseWriter, r *http.Request) 
 }
 
 // GET /api/user/pool-status — returns pools account summary + today/week usage for the CLI dashboard
+// DELETE /api/user/owned-account — user deletes their own account from the proxy
+func (h *UserSelfHandler) DeleteOwnedAccount(w http.ResponseWriter, r *http.Request) {
+	user, err := h.extractUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, errResp("invalid token"))
+		return
+	}
+
+	var account database.ClaudeAccount
+	if err := h.db.Where("owner_user_id = ?", user.ID).First(&account).Error; err != nil {
+		writeJSON(w, http.StatusNotFound, errResp("no owned account"))
+		return
+	}
+
+	// Clean up pool links
+	h.db.Where("account_id = ?", account.ID).Delete(&database.AccountPool{})
+	h.db.Delete(&account)
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "account deleted"})
+}
+
 func (h *UserSelfHandler) PoolStatus(w http.ResponseWriter, r *http.Request) {
 	user, err := h.extractUser(r)
 	if err != nil {

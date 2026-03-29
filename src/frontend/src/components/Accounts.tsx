@@ -52,6 +52,34 @@ function PoolCheckboxes({ pools, selected, onChange }: { pools: Pool[]; selected
   )
 }
 
+function ImportCurlHelper() {
+  const [copied, setCopied] = useState(false)
+  const origin = window.location.origin
+  const cmd = `cat ~/.claude/.credentials.json | curl -sX POST ${origin}/api/admin/accounts/import-credentials -H "Content-Type: application/json" -b "claude_proxy_session=$(grep -o 'claude_proxy_session=[^;]*' <<< "$(curl -s -c - ${origin}/api/auth/login -H 'Content-Type: application/json' -d '{}' 2>/dev/null)" | cut -d= -f2)" -d @-`
+  // Simpler: just tell the user to use the setup page
+  const simpleCmd = `cat ~/.claude/.credentials.json | curl -sX POST ${origin}/api/admin/accounts/import-credentials \\
+  -H "Content-Type: application/json" \\
+  -H "Cookie: claude_proxy_session=YOUR_SESSION_COOKIE" \\
+  -d @-`
+  const tip = `Tip: Copy your session cookie from browser DevTools > Application > Cookies > claude_proxy_session`
+  return (
+    <div className="mt-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Or import from a machine with Claude logged in:</p>
+      <div className="bg-gray-900 dark:bg-gray-950 rounded-lg px-3 py-2 mb-2">
+        <code className="text-xs text-green-400 font-mono break-all whitespace-pre-wrap">{simpleCmd}</code>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => { copyToClipboard(simpleCmd); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+          className="text-xs text-brand-500 hover:underline"
+        >{copied ? 'Copied!' : 'Copy command'}</button>
+      </div>
+      <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">{tip}</p>
+      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Or use the setup page: each user's setup link provides a pre-authenticated import URL.</p>
+    </div>
+  )
+}
+
 function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defaultType: 'oauth' | 'apikey'; onClose: () => void }) {
   const [name, setName] = useState('')
   const [accountType, setAccountType] = useState<'oauth' | 'apikey'>(defaultType)
@@ -119,14 +147,7 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
                 value={credJson} onChange={e => setCredJson(e.target.value)}
                 placeholder={placeholder}
               />
-              <div className="mt-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Or import via curl from a machine with Claude logged in:</p>
-                <code className="block text-xs text-gray-700 dark:text-gray-300 font-mono break-all bg-gray-100 dark:bg-gray-800 rounded px-2 py-1.5">
-                  curl -s -X POST {window.location.origin}/api/admin/accounts -H &quot;Content-Type: application/json&quot; -d &apos;{'{'}
-                  &quot;name&quot;:&quot;My Account&quot;, &quot;credentials_json&quot;:&apos;&quot;$(cat ~/.claude/.credentials.json)&quot;&apos;{'}'}
-                  &apos;
-                </code>
-              </div>
+              <ImportCurlHelper />
             </div>
           ) : (
             <div>

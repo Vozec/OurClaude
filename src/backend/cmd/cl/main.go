@@ -62,6 +62,13 @@ func claudeCredsPath() string {
 
 func loadConfig() (*Config, error) {
 	data, err := os.ReadFile(configPath())
+	// If not found and running as sudo, try the real user's home
+	if err != nil && os.IsNotExist(err) {
+		if home := sudoUserHome(); home != "" {
+			altPath := filepath.Join(home, configFile)
+			data, err = os.ReadFile(altPath)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +449,22 @@ func cmdLogout() {
 
 func cmdUninstall() {
 	fmt.Println("Uninstalling ourclaude...")
+
+	// Delete owned account on the server (best-effort)
+	if cfg, err := loadConfig(); err == nil {
+		req, err := http.NewRequest("DELETE", cfg.ServerURL+"/api/user/owned-account", nil)
+		if err == nil {
+			req.Header.Set("Authorization", "Bearer "+cfg.Token)
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					fmt.Println("  Removed owned account from proxy")
+				}
+			}
+		}
+	}
 
 	// Remove config (own home + sudo user's home if running as root)
 	cfgPath := configPath()

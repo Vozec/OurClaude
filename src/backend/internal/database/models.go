@@ -28,8 +28,9 @@ type ClaudeAccount struct {
 	Pools        []*Pool    `gorm:"many2many:account_pools;joinForeignKey:AccountID;joinReferences:PoolID" json:"pools,omitempty"`
 	Name         string     `gorm:"not null" json:"name"`
 	AccessToken  string     `gorm:"not null" json:"-"`
-	RefreshToken string     `gorm:"not null" json:"-"`
-	ExpiresAt    time.Time  `json:"expires_at"`
+	RefreshToken     string     `gorm:"not null" json:"-"`
+	RefreshTokenHash string     `gorm:"uniqueIndex" json:"-"` // SHA256 of plaintext refresh token for dedup
+	ExpiresAt        time.Time  `json:"expires_at"`
 	AccountType  string     `gorm:"default:'oauth'" json:"account_type"` // "oauth" or "apikey"
 	Status       string     `gorm:"default:'active'" json:"status"`
 	LastError    string     `json:"last_error,omitempty"`

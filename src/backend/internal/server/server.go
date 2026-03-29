@@ -272,6 +272,10 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	installH := handlers.NewInstallHandler(s.db)
 	r.Get("/api/install/{token}", installH.Script)
 
+	// Public pre-auth account import (uses setup token, no admin JWT)
+	publicAccountsH := handlers.NewAccountsHandler(s.db, s.enc, s.oauth, s.poolMgr, s.cfg)
+	r.Post("/api/import/{token}", publicAccountsH.PublicImport)
+
 	// User self-service (authenticated with sk-proxy-* token, not admin JWT)
 	userSelfH := handlers.NewUserSelfHandler(s.db, s.cfg.DistDir, s.enc)
 	r.Get("/api/user/me", userSelfH.Me)
@@ -280,6 +284,7 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	r.Get("/api/user/update", userSelfH.Update)
 	r.Post("/api/user/import-account", userSelfH.ImportAccount)
 	r.Get("/api/user/owned-account", userSelfH.OwnedAccount)
+	r.Delete("/api/user/owned-account", userSelfH.DeleteOwnedAccount)
 	r.Get("/api/user/pool-status", userSelfH.PoolStatus)
 	r.Get("/api/user/mcp-servers", userSelfH.MCPServers)
 
