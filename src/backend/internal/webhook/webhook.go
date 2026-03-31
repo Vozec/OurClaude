@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"log"
 	"math"
 	"net/http"
@@ -20,19 +21,43 @@ import (
 
 // Dispatcher sends HTTP webhooks when events occur.
 type Dispatcher struct {
-	db     *gorm.DB
-	client *http.Client
+	db       *gorm.DB
+	client   *http.Client
+	sent     map[string]time.Time // dedup: event+target → last sent time
+	sentMu   sync.Mutex
+	cooldown time.Duration // minimum time between identical notifications
 }
 
 func New(db *gorm.DB) *Dispatcher {
 	return &Dispatcher{
-		db:     db,
-		client: &http.Client{Timeout: 5 * time.Second},
+		db:       db,
+		client:   &http.Client{Timeout: 5 * time.Second},
+		sent:     make(map[string]time.Time),
+		cooldown: 10 * time.Minute,
 	}
 }
 
 // Dispatch fires all active webhooks subscribed to the given event (async).
+// Deduplicates: same event+payload key is only sent once per cooldown period (10 min).
 func (d *Dispatcher) Dispatch(event string, payload interface{}) {
+	// Build dedup key from event + payload summary
+	keyData, _ := json.Marshal(payload)
+	dedupKey := event + ":" + string(keyData)
+
+	d.sentMu.Lock()
+	if last, ok := d.sent[dedupKey]; ok && time.Since(last) < d.cooldown {
+		d.sentMu.Unlock()
+		return // already sent recently, skip
+	}
+	d.sent[dedupKey] = time.Now()
+	// Prune old entries
+	for k, t := range d.sent {
+		if time.Since(t) > d.cooldown {
+			delete(d.sent, k)
+		}
+	}
+	d.sentMu.Unlock()
+
 	var hooks []database.WebhookConfig
 	if err := d.db.Where("active = ?", true).Find(&hooks).Error; err != nil {
 		return
@@ -56,20 +81,53 @@ func discordColor(event string) int {
 		return 16744272 // orange
 	case "account.error":
 		return 15548997 // red
+	case "quota.warning":
+		return 16776960 // yellow
 	default:
 		return 3447003 // blue
 	}
 }
 
+func discordEmoji(event string) string {
+	switch event {
+	case "account.exhausted":
+		return ":warning:"
+	case "account.error":
+		return ":x:"
+	case "quota.warning":
+		return ":chart_with_upwards_trend:"
+	default:
+		return ":bell:"
+	}
+}
+
 func marshalDiscordPayload(event string, payload interface{}) ([]byte, error) {
-	desc, _ := json.Marshal(payload)
+	// Build human-readable fields from payload
+	data, _ := json.Marshal(payload)
+	var fields []map[string]interface{}
+	var flat map[string]interface{}
+	if json.Unmarshal(data, &flat) == nil {
+		for k, v := range flat {
+			fields = append(fields, map[string]interface{}{
+				"name":   strings.ReplaceAll(k, "_", " "),
+				"value":  fmt.Sprintf("`%v`", v),
+				"inline": true,
+			})
+		}
+	}
+
+	embed := map[string]interface{}{
+		"title":     fmt.Sprintf("%s  %s", discordEmoji(event), event),
+		"color":     discordColor(event),
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"footer":    map[string]string{"text": "OurClaude"},
+	}
+	if len(fields) > 0 {
+		embed["fields"] = fields
+	}
+
 	return json.Marshal(map[string]interface{}{
-		"embeds": []map[string]interface{}{{
-			"title":       event,
-			"description": "```json\n" + string(desc) + "\n```",
-			"color":       discordColor(event),
-			"timestamp":   time.Now().UTC().Format(time.RFC3339),
-		}},
+		"embeds": []map[string]interface{}{embed},
 	})
 }
 

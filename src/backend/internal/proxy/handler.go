@@ -420,6 +420,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		resp, err := h.forward(r, body, account.AccessToken, user)
 		if err != nil {
+			// Don't mark account as error if the CLIENT cancelled the request
+			if r.Context().Err() != nil {
+				// Client disconnected — not the account's fault
+				return
+			}
 			lastErr = err
 			h.pool.MarkError(account.ID, err.Error())
 			continue
@@ -791,8 +796,8 @@ func parseAndLogUsage(body []byte, isStreaming bool, userID, accountID uint, end
 		statsStream.Publish(evt)
 	}
 
-	// Save conversation log if we have message content
-	if len(messagesJSON) > 0 && messagesJSON != "null" {
+	// Save conversation log only for successful requests with actual content
+	if len(messagesJSON) > 0 && messagesJSON != "null" && statusCode == 200 && (inputTokens > 0 || outputTokens > 0) && responseText.Len() > 0 {
 		logID := entry.ID
 		db.Create(&database.ConversationLog{
 			UserID:       userID,
