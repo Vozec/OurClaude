@@ -174,10 +174,13 @@ func (p *Poller) pollAll() {
 
 // PollNow triggers an immediate poll of all accounts (for manual refresh button).
 func (p *Poller) PollNow() {
-	// Reset all backoff counters
+	// Reset all backoff counters AND global rate limit
 	p.failCountMu.Lock()
 	p.failCount = make(map[uint]int)
 	p.failCountMu.Unlock()
+	p.pollTimesMu.Lock()
+	p.pollTimes = nil
+	p.pollTimesMu.Unlock()
 	go p.pollAll()
 }
 

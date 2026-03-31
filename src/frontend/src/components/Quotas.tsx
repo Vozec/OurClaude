@@ -101,11 +101,22 @@ function AccountQuotaCard({ q }: { q: AccountQuotaWithInfo }) {
       )}
 
       <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
-        Updated {new Date(q.updated_at).toLocaleTimeString()}
         {(() => {
-          const ageMs = Date.now() - new Date(q.updated_at).getTime()
+          const updated = new Date(q.updated_at)
+          const ageMs = Date.now() - updated.getTime()
+          if (updated.getFullYear() <= 1970 || ageMs < 0) {
+            return <>No data yet — waiting for next poll</>
+          }
           const ageHours = Math.floor(ageMs / 3600000)
-          if (ageHours >= 1) {
+          const ageMins = Math.floor(ageMs / 60000)
+          const timeStr = ageMins < 1 ? 'just now' : ageMins < 60 ? `${ageMins}m ago` : `${ageHours}h ago`
+          return <>Updated {timeStr}</>
+        })()}
+        {(() => {
+          const updated = new Date(q.updated_at)
+          const ageMs = Date.now() - updated.getTime()
+          const ageHours = Math.floor(ageMs / 3600000)
+          if (updated.getFullYear() > 1970 && ageHours >= 1) {
             return <span className="ml-2 text-orange-500 font-medium">{'\u26A0'} Data from {ageHours}h ago</span>
           }
           return null
