@@ -124,8 +124,6 @@ func (p *Poller) pollAll() {
 	var accounts []database.ClaudeAccount
 	p.db.Where("account_type = ?", "oauth").Find(&accounts)
 
-	interval := p.getInterval()
-
 	for _, acc := range accounts {
 		// Skip accounts in backoff (failed too many times recently)
 		p.failCountMu.Lock()
@@ -143,18 +141,30 @@ func (p *Poller) pollAll() {
 			break // stop this cycle if we hit the global limit mid-batch
 		}
 		p.recordPoll()
-		if err := p.fetchOne(acc); err != nil {
+		if err := p.fetchOne(acc); err == nil {
+			// Success: reset failure count
+			p.failCountMu.Lock()
+			delete(p.failCount, acc.ID)
+			p.failCountMu.Unlock()
+
+			// Auto-reset exhausted/error accounts that have available quota
+			if acc.Status == "exhausted" || acc.Status == "error" {
+				var q database.AccountQuota
+				if p.db.Where("account_id = ?", acc.ID).First(&q).Error == nil && q.FiveHourPct < 80 {
+					p.db.Model(&acc).Updates(map[string]interface{}{"status": "active", "last_error": ""})
+					log.Printf("quota: auto-reset account %d (%s) — quota at %d%%, was %s", acc.ID, acc.Name, q.FiveHourPct, acc.Status)
+				}
+			}
+		} else {
 			p.failCountMu.Lock()
 			p.failCount[acc.ID]++
 			count := p.failCount[acc.ID]
 			p.failCountMu.Unlock()
 
-			// Log only on first failure or every 10th consecutive failure
 			if count == 1 || count%10 == 0 {
-				log.Printf("quota: account %d (%s): %v (failures: %d, backoff: %s)", acc.ID, acc.Name, err, count, interval*time.Duration(int(math.Pow(2, math.Min(float64(count), 5)))))
+				log.Printf("quota: account %d (%s): %v (failures: %d)", acc.ID, acc.Name, err, count)
 			}
 
-			// Store error but keep old data
 			p.db.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "account_id"}},
 				DoUpdates: clause.AssignmentColumns([]string{"error", "updated_at"}),
@@ -163,11 +173,6 @@ func (p *Poller) pollAll() {
 				Error:     err.Error(),
 				UpdatedAt: time.Now(),
 			})
-		} else {
-			// Success: reset failure count
-			p.failCountMu.Lock()
-			delete(p.failCount, acc.ID)
-			p.failCountMu.Unlock()
 		}
 	}
 }

@@ -420,29 +420,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		resp, err := h.forward(r, body, account.AccessToken, user)
 		if err != nil {
-			// Don't mark account as error if the CLIENT cancelled the request
 			if r.Context().Err() != nil {
-				// Client disconnected — not the account's fault
-				return
+				return // Client disconnected — not the account's fault
 			}
 			lastErr = err
-			h.pool.MarkError(account.ID, err.Error())
+			log.Printf("proxy: account %d network error: %v", account.ID, err)
 			continue
 		}
 
+		// On 429 or 401: don't change account status — just try next account.
+		// Account status is managed by the quota poller (based on real usage data)
+		// and the health checker, NOT by the proxy request handler.
 		if resp.StatusCode == http.StatusTooManyRequests {
 			resp.Body.Close()
-			h.pool.MarkExhausted(account.ID)
-			log.Printf("proxy: account %d marked exhausted (429 from upstream)", account.ID)
-			lastErr = nil
+			log.Printf("proxy: account %d got 429, trying next account", account.ID)
+			lastErr = fmt.Errorf("account %d: rate limited", account.ID)
 			continue
 		}
 
 		if resp.StatusCode == http.StatusUnauthorized {
 			resp.Body.Close()
-			// Token expired or invalid — mark error and try next account
-			h.pool.MarkError(account.ID, "upstream returned 401 (token expired or invalid)")
-			lastErr = fmt.Errorf("account %d: 401 unauthorized", account.ID)
+			log.Printf("proxy: account %d got 401 (token expired/invalid), trying next account", account.ID)
+			lastErr = fmt.Errorf("account %d: unauthorized", account.ID)
 			continue
 		}
 
