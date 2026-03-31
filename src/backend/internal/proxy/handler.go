@@ -428,7 +428,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if resp.StatusCode == http.StatusTooManyRequests {
 			resp.Body.Close()
 			h.pool.MarkExhausted(account.ID)
+			log.Printf("proxy: account %d marked exhausted (429 from upstream)", account.ID)
 			lastErr = nil
+			continue
+		}
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			resp.Body.Close()
+			// Token expired or invalid — mark error and try next account
+			h.pool.MarkError(account.ID, "upstream returned 401 (token expired or invalid)")
+			lastErr = fmt.Errorf("account %d: 401 unauthorized", account.ID)
 			continue
 		}
 

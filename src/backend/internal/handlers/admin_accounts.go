@@ -522,31 +522,35 @@ func (h *AccountsHandler) Quota(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/admin/quotas — returns all account quotas (for Quotas page)
 func (h *AccountsHandler) AllQuotas(w http.ResponseWriter, r *http.Request) {
-	var quotas []database.AccountQuota
-	h.db.Find(&quotas)
+	// Return ALL OAuth accounts, with quota data if available
+	var accounts []database.ClaudeAccount
+	h.db.Preload("Pools").Where("account_type = ?", "oauth").Find(&accounts)
 
-	// Attach account name + pools
 	type quotaWithAccount struct {
 		database.AccountQuota
-		AccountName string          `json:"account_name"`
-		AccountType string          `json:"account_type"`
-		Status      string          `json:"status"`
+		AccountName string           `json:"account_name"`
+		AccountType string           `json:"account_type"`
+		Status      string           `json:"status"`
 		Pools       []*database.Pool `json:"pools,omitempty"`
 	}
 
-	result := make([]quotaWithAccount, 0, len(quotas))
-	for _, q := range quotas {
-		var acc database.ClaudeAccount
-		if err := h.db.Preload("Pools").First(&acc, q.AccountID).Error; err != nil {
-			continue
+	result := make([]quotaWithAccount, 0, len(accounts))
+	for _, acc := range accounts {
+		entry := quotaWithAccount{
+			AccountName: acc.Name,
+			AccountType: acc.AccountType,
+			Status:      acc.Status,
+			Pools:       acc.Pools,
 		}
-		result = append(result, quotaWithAccount{
-			AccountQuota: q,
-			AccountName:  acc.Name,
-			AccountType:  acc.AccountType,
-			Status:       acc.Status,
-			Pools:        acc.Pools,
-		})
+		// Try to find quota data for this account
+		var q database.AccountQuota
+		if err := h.db.Where("account_id = ?", acc.ID).First(&q).Error; err == nil {
+			entry.AccountQuota = q
+		} else {
+			// No quota data yet — set account_id so frontend can identify it
+			entry.AccountQuota.AccountID = acc.ID
+		}
+		result = append(result, entry)
 	}
 
 	writeJSON(w, http.StatusOK, result)

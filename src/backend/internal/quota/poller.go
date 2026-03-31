@@ -122,7 +122,7 @@ func (p *Poller) pollAll() {
 	}
 
 	var accounts []database.ClaudeAccount
-	p.db.Where("account_type = ? AND status != ?", "oauth", "disabled").Find(&accounts)
+	p.db.Where("account_type = ?", "oauth").Find(&accounts)
 
 	interval := p.getInterval()
 
