@@ -27,6 +27,7 @@ import Teams from './components/Teams'
 import TeamDetail from './components/TeamDetail'
 import MCPServers from './components/MCPServers'
 import Quotas from './components/Quotas'
+import OAuthCallback from './components/OAuthCallback'
 import { ToastProvider } from './components/ToastProvider'
 
 class ErrorBoundary extends Component<{children: ReactNode}, {error: Error | null}> {
@@ -60,6 +61,7 @@ function App() {
           <Route path="/invite" element={<InviteUse />} />
           <Route path="/invite/:token" element={<InviteUse />} />
           <Route path="/setup/:token" element={<SetupLink />} />
+          <Route path="/oauth/code/callback" element={<OAuthCallback />} />
           <Route path="/*" element={<PrivateRoutes />} />
         </Routes>
       </BrowserRouter>
