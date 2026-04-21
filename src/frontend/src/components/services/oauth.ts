@@ -71,11 +71,11 @@ export class OAuthService {
     const [authorizationCode, state] = pastedValue.split('#')
 
     if (!authorizationCode || !state) {
-      throw new Error('Format invalide — colle la valeur complète (code#state)')
+      throw new Error('Invalid format — paste the full value (code#state)')
     }
 
     if (state !== this.expectedState) {
-      throw new Error('State invalide — recommence le flux OAuth')
+      throw new Error('Invalid state — restart the OAuth flow')
     }
 
     const res = await fetch('/api/oauth/token', {
@@ -97,12 +97,11 @@ export class OAuthService {
     }
 
     const data = JSON.parse(text) as AnthropicTokenResponse
-    console.log('[oauth] raw token response:', data)
     return {
       claudeAiOauth: {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
-        expiresAt: data.expires_in, // to fix later.
+        expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
         scopes: data.scope?.split(" "),
       },
     }
