@@ -186,13 +186,13 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
                     className="flex items-center gap-2 w-full px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium transition-colors justify-center"
                   >
                     <ExternalLink className="w-4 h-4" />
-                    Se connecter via OAuth
+                    Sign in via OAuth
                   </button>
                   <button
                     onClick={() => setShowManual(v => !v)}
                     className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:underline"
                   >
-                    {showManual ? 'Masquer la saisie manuelle' : 'Coller le JSON manuellement'}
+                    {showManual ? 'Hide manual input' : 'Paste JSON manually'}
                   </button>
                   {showManual && (
                     <>
@@ -210,12 +210,12 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
               {oauthStep === 'authorizing' && (
                 <div className="space-y-3">
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Autorisez l'accès dans la fenêtre ouverte, puis collez le code ici.
+                    Authorize access in the opened window, then paste the code here.
                   </p>
                   <a href={authUrl} target="_blank" rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs text-brand-500 hover:underline">
                     <ExternalLink className="w-3 h-3" />
-                    Rouvrir la fenêtre d'autorisation
+                    Reopen authorization window
                   </a>
                   <div className="flex gap-2">
                     <input
@@ -233,11 +233,11 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
                       className="flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
                     >
                       <Key className="w-4 h-4" />
-                      Valider
+                      Submit
                     </button>
                   </div>
                   <button onClick={() => setOauthStep('idle')} className="text-xs text-gray-400 hover:underline">
-                    Annuler
+                    Cancel
                   </button>
                 </div>
               )}
@@ -245,14 +245,14 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
               {oauthStep === 'exchanging' && (
                 <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 py-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Échange du code en cours…</span>
+                  <span className="text-sm">Exchanging code…</span>
                 </div>
               )}
 
               {oauthStep === 'ready' && (
                 <div className="flex items-center gap-2 text-green-600 dark:text-green-400 py-2">
                   <CheckCircle className="w-4 h-4 shrink-0" />
-                  <span className="text-sm font-medium">Compte autorisé — cliquez sur "Add Account" pour confirmer.</span>
+                  <span className="text-sm font-medium">Account authorized — click "Add Account" to confirm.</span>
                 </div>
               )}
             </div>
