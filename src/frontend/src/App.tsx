@@ -60,7 +60,7 @@ function App() {
           <Route path="/invite" element={<InviteUse />} />
           <Route path="/invite/:token" element={<InviteUse />} />
           <Route path="/setup/:token" element={<SetupLink />} />
-          <Route path="/*" element={<PrivateRoutes />} />
+<Route path="/*" element={<PrivateRoutes />} />
         </Routes>
       </BrowserRouter>
     </ToastProvider>

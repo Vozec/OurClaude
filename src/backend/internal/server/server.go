@@ -105,6 +105,10 @@ func (s *Server) SetupAdminRouter() http.Handler {
 	r.Post("/api/auth/login", authH.Login)
 	r.Post("/api/auth/logout", authH.Logout)
 
+	// Public: OAuth token exchange proxy (avoids CORS from browser)
+	oauthH := handlers.NewOAuthHandler()
+	r.Post("/api/oauth/token", oauthH.ExchangeToken)
+
 	// Public: use an invite
 	invitesH := handlers.NewInvitesHandler(s.db)
 	r.Post("/api/invite/use", invitesH.Use)

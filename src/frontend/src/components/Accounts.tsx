@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, poolsApi, usersApi, quotasApi, Account, Pool, User, AccountQuotaData } from '../lib/api'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Trash2, RefreshCw, RotateCcw, CheckCircle, AlertCircle, Clock, X, KeyRound, Pencil, Link2Off, BarChart2, Power, Key } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, RotateCcw, CheckCircle, AlertCircle, Clock, X, KeyRound, Pencil, Link2Off, BarChart2, Power, Key, ExternalLink, Loader2 } from 'lucide-react'
+import { OAuthService } from './services/oauth.js'
 import { useToast } from './ToastProvider'
 import { copyToClipboard } from '../lib/clipboard'
 
@@ -87,6 +88,11 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
   const [credJson, setCredJson] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState('')
+  const [oauthStep, setOauthStep] = useState<'idle' | 'authorizing' | 'exchanging' | 'ready'>('idle')
+  const [oauthCode, setOauthCode] = useState('')
+  const [authUrl, setAuthUrl] = useState('')
+  const [showManual, setShowManual] = useState(false)
+  const [oauthService] = useState(() => new OAuthService())
   const qc = useQueryClient()
 
   const mutation = useMutation({
@@ -99,6 +105,38 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); onClose() },
     onError: (e: Error) => setError(e.message),
   })
+
+  async function startOAuth() {
+    setOauthStep('authorizing')
+    setError('')
+    setOauthCode('')
+    const url = await oauthService.getAuthUrl()
+    setAuthUrl(url)
+    window.open(url, '_blank')
+  }
+
+  async function submitOAuthCode() {
+    const trimmed = oauthCode.trim()
+    if (!trimmed) return
+    setOauthStep('exchanging')
+    try {
+      const creds = await oauthService.exchangeCode(trimmed)
+      setCredJson(JSON.stringify(creds))
+      setOauthStep('ready')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setOauthStep('idle')
+    }
+  }
+
+  function switchType(t: 'oauth' | 'apikey') {
+    setAccountType(t)
+    setOauthStep('idle')
+    setOauthCode('')
+    setCredJson('')
+    setError('')
+    setShowManual(false)
+  }
 
   const placeholder = JSON.stringify({
     claudeAiOauth: {
@@ -116,13 +154,12 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
         <h2 className="text-lg font-semibold mb-1 dark:text-white">Add Account</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">Add an OAuth account or an Anthropic API key.</p>
         <div className="space-y-4">
-          {/* Type toggle */}
           <div className="flex gap-2">
-            <button onClick={() => setAccountType('oauth')}
+            <button onClick={() => switchType('oauth')}
               className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${accountType === 'oauth' ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300' : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
               OAuth Account
             </button>
-            <button onClick={() => setAccountType('apikey')}
+            <button onClick={() => switchType('apikey')}
               className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${accountType === 'apikey' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300' : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
               API Key
             </button>
@@ -139,15 +176,85 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pools (optional)</label>
             <PoolCheckboxes pools={pools} selected={selectedPools} onChange={setSelectedPools} />
           </div>
+
           {accountType === 'oauth' ? (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Credentials JSON</label>
-              <textarea
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-xs h-40 resize-none dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
-                value={credJson} onChange={e => setCredJson(e.target.value)}
-                placeholder={placeholder}
-              />
-              <ImportCurlHelper />
+            <div className="space-y-3">
+              {oauthStep === 'idle' && (
+                <>
+                  <button
+                    onClick={startOAuth}
+                    className="flex items-center gap-2 w-full px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium transition-colors justify-center"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Sign in via OAuth
+                  </button>
+                  <button
+                    onClick={() => setShowManual(v => !v)}
+                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:underline"
+                  >
+                    {showManual ? 'Hide manual input' : 'Paste JSON manually'}
+                  </button>
+                  {showManual && (
+                    <>
+                      <textarea
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono text-xs h-36 resize-none dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                        value={credJson} onChange={e => setCredJson(e.target.value)}
+                        placeholder={placeholder}
+                      />
+                      <ImportCurlHelper />
+                    </>
+                  )}
+                </>
+              )}
+
+              {oauthStep === 'authorizing' && (
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Authorize access in the opened window, then paste the code here.
+                  </p>
+                  <a href={authUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-brand-500 hover:underline">
+                    <ExternalLink className="w-3 h-3" />
+                    Reopen authorization window
+                  </a>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={oauthCode}
+                      onChange={e => setOauthCode(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && submitOAuthCode()}
+                      placeholder="code#state"
+                      autoFocus
+                      className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-400"
+                    />
+                    <button
+                      onClick={submitOAuthCode}
+                      disabled={!oauthCode.trim()}
+                      className="flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Key className="w-4 h-4" />
+                      Submit
+                    </button>
+                  </div>
+                  <button onClick={() => setOauthStep('idle')} className="text-xs text-gray-400 hover:underline">
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {oauthStep === 'exchanging' && (
+                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 py-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Exchanging code…</span>
+                </div>
+              )}
+
+              {oauthStep === 'ready' && (
+                <div className="flex items-center gap-2 text-green-600 dark:text-green-400 py-2">
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  <span className="text-sm font-medium">Account authorized — click "Add Account" to confirm.</span>
+                </div>
+              )}
             </div>
           ) : (
             <div>
@@ -163,6 +270,7 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
               </p>
             </div>
           )}
+
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
         <div className="flex gap-3 mt-6">
@@ -171,7 +279,7 @@ function AddAccountModal({ pools, defaultType, onClose }: { pools: Pool[]; defau
           </button>
           <button
             onClick={() => mutation.mutate()}
-            disabled={!canSubmit || mutation.isPending}
+            disabled={!canSubmit || mutation.isPending || oauthStep === 'authorizing' || oauthStep === 'exchanging'}
             className="flex-1 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm hover:bg-brand-600 disabled:opacity-50"
           >
             {mutation.isPending ? 'Adding...' : 'Add Account'}
